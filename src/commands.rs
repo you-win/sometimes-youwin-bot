@@ -33,18 +33,22 @@ impl From<std::io::Error> for CommandError {
 
 type Result<T> = std::result::Result<T, CommandError>;
 
+/// Ping pong.
 pub fn ping() -> String {
     "pong".into()
 }
 
+/// Receive a username and reply appropriately.
 pub fn whoami(username: &String) -> String {
     format!("You are {}!", username)
 }
 
+/// Reply with a clap emoji.
 pub fn high_five() -> String {
     "👏".into()
 }
 
+/// Similar to how `cowsay` works, take a message and make it fancy.
 pub fn ferris_say(message: &String, max_width: usize) -> Result<String> {
     let mut buffer = vec![];
     let mut writer = BufWriter::new(buffer);
@@ -57,6 +61,8 @@ pub fn ferris_say(message: &String, max_width: usize) -> Result<String> {
     }
 }
 
+/// Roll a dice with the given number of sides. The number of sides must always
+/// be equal to or greater than 1.
 pub fn roll(sides: u32) -> u32 {
     let mut rng = rand::thread_rng();
 

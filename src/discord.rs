@@ -1,6 +1,13 @@
-use crate::{commands as c, utils};
+mod antispam;
+mod commands;
+
+use std::{str::FromStr, sync::Arc};
+
+use crate::utils;
+use log::{debug, info};
 use serenity::{
     async_trait,
+    builder::GetMessages,
     framework::{
         standard::{
             macros::{command, group},
@@ -8,74 +15,78 @@ use serenity::{
         },
         StandardFramework,
     },
-    model::channel::Message,
+    model::{
+        channel::Message,
+        prelude::{ChannelId, GuildId, Reaction, Ready},
+    },
     prelude::*,
     Client,
 };
 
-#[group]
-#[commands(ping, whoami, high_five, ferris_say, roll)]
-struct General;
+struct Handler {
+    guild_id: GuildId,
 
-#[command]
-async fn ping(ctx: &Context, message: &Message) -> CommandResult {
-    message.reply(ctx, c::ping()).await?;
-
-    Ok(())
+    antispam: Arc<RwLock<antispam::Antispam>>,
 }
 
-#[command]
-async fn whoami(ctx: &Context, message: &Message) -> CommandResult {
-    message.reply(ctx, c::whoami(&message.author.name)).await?;
+impl Handler {
+    pub fn new() -> Self {
+        Self {
+            guild_id: GuildId(crate::DISCORD_GUILD_ID.parse().unwrap()),
 
-    Ok(())
+            antispam: Arc::new(RwLock::new(antispam::Antispam::new())),
+        }
+    }
 }
-
-#[command]
-#[aliases("high-five")]
-async fn high_five(ctx: &Context, message: &Message) -> CommandResult {
-    message.reply(ctx, c::high_five()).await?;
-
-    Ok(())
-}
-
-#[command]
-#[aliases("ferris-say", "ferrissay", "cowsay")]
-async fn ferris_say(ctx: &Context, message: &Message) -> CommandResult {
-    let val = match c::ferris_say(&utils::strip_command_prefix(&message.content), 36) {
-        Ok(v) => v,
-        Err(e) => e.to_string(),
-    };
-
-    message.reply(ctx, format!("```\n{}```", val)).await?;
-
-    Ok(())
-}
-
-#[command]
-async fn roll(ctx: &Context, message: &Message) -> CommandResult {
-    let sides = match utils::strip_command_prefix(&message.content).parse() {
-        Ok(v) => v,
-        Err(_) => 6,
-    };
-
-    let val = c::roll(sides);
-
-    message.reply(ctx, val).await?;
-
-    Ok(())
-}
-
-struct Handler;
 
 #[async_trait]
-impl EventHandler for Handler {}
+impl EventHandler for Handler {
+    async fn ready(&self, ctx: Context, ready: Ready) {
+        info!("Discord bot connected!");
+
+        let mut channels = self.guild_id.channels(&ctx.http).await.unwrap();
+        match channels.get_mut(&ChannelId::from_str(crate::DISCORD_BOT_DATA_CHANNEL_ID).unwrap()) {
+            Some(c) => {
+                let messages = c.messages(&ctx.http, |m| m).await.unwrap();
+
+                for message in messages.iter() {
+                    debug!("{}", &message.content);
+                    //
+                }
+            }
+            None => panic!(
+                "Unable to read config from {}",
+                crate::DISCORD_BOT_DATA_CHANNEL_ID
+            ),
+        }
+
+        // TODO read configuration from bot data channel
+
+        info!("Discord bot ready!");
+    }
+
+    async fn message(&self, ctx: Context, message: Message) {
+        if self.antispam.write().await.is_spam(&message.author) {
+            debug!("Spammer detected {}", &message.author.name);
+            message.reply_mention(&ctx, "Please do not spam").await;
+            message.delete(ctx).await;
+        }
+    }
+
+    async fn reaction_add(&self, ctx: Context, add_reaction: Reaction) {
+        //
+    }
+
+    async fn reaction_remove(&self, ctx: Context, remove_reaction: Reaction) {
+        //
+    }
+}
 
 #[tokio::main]
 pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     let framework = StandardFramework::new()
         .configure(configure_bot)
-        .group(&GENERAL_GROUP);
+        .group(&commands::GENERAL_GROUP);
 
     let token = crate::DISCORD_TOKEN;
     let intents = GatewayIntents::GUILDS
@@ -87,7 +98,7 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         | GatewayIntents::MESSAGE_CONTENT;
 
     let mut client = Client::builder(token, intents)
-        .event_handler(Handler)
+        .event_handler(Handler::new())
         .framework(framework)
         .await?;
 
