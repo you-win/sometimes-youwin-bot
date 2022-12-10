@@ -42,7 +42,7 @@ async fn high_five(ctx: &Context, message: &Message) -> CommandResult {
 #[command]
 #[aliases("ferris-say", "ferrissay", "cowsay")]
 async fn ferris_say(ctx: &Context, message: &Message) -> CommandResult {
-    let val = match c::ferris_say(&message.content, 36) {
+    let val = match c::ferris_say(&utils::strip_command_prefix(&message.content), 36) {
         Ok(v) => v,
         Err(e) => e.to_string(),
     };

@@ -49,11 +49,7 @@ pub fn ferris_say(message: &String, max_width: usize) -> Result<String> {
     let mut buffer = vec![];
     let mut writer = BufWriter::new(buffer);
 
-    ferris_says::say(
-        utils::strip_command_prefix(message).as_bytes(),
-        max_width,
-        &mut writer,
-    )?;
+    ferris_says::say(message.as_bytes(), max_width, &mut writer)?;
 
     match String::from_utf8(writer.buffer().to_vec()) {
         Ok(v) => Ok(v),
