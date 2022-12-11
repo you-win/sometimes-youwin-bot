@@ -4,7 +4,7 @@ mod commands;
 use std::{str::FromStr, sync::Arc};
 
 use crate::utils;
-use log::{debug, info};
+use log::{debug, error, info};
 use serenity::{
     async_trait,
     builder::GetMessages,
@@ -24,6 +24,9 @@ use serenity::{
 };
 
 struct Handler {
+    bot_id: u64,
+    admin_id: u64,
+
     guild_id: GuildId,
 
     antispam: Arc<RwLock<antispam::Antispam>>,
@@ -32,6 +35,9 @@ struct Handler {
 impl Handler {
     pub fn new() -> Self {
         Self {
+            bot_id: crate::DISCORD_BOT_ID.parse().unwrap(),
+            admin_id: crate::DISCORD_ADMIN_ID.parse().unwrap(),
+
             guild_id: GuildId(crate::DISCORD_GUILD_ID.parse().unwrap()),
 
             antispam: Arc::new(RwLock::new(antispam::Antispam::new())),
@@ -66,10 +72,26 @@ impl EventHandler for Handler {
     }
 
     async fn message(&self, ctx: Context, message: Message) {
-        if self.antispam.write().await.is_spam(&message.author) {
+        let author_id = message.author.id.as_u64();
+
+        if author_id == &self.bot_id || author_id == &self.admin_id {
+            return;
+        }
+
+        if self.antispam.write().await.is_spam(author_id) {
             debug!("Spammer detected {}", &message.author.name);
-            message.reply_mention(&ctx, "Please do not spam").await;
-            message.delete(ctx).await;
+            match message.reply_mention(&ctx, "Please do not spam").await {
+                Ok(_) => {}
+                Err(e) => error!("Unable to send spammer detected message: {}", e.to_string()),
+            }
+            match message.delete(ctx).await {
+                Ok(_) => {}
+                Err(e) => error!("Unable to delete spam message: {}", e.to_string()),
+            }
+
+            if self.antispam.write().await.should_timeout(author_id) {
+                // TODO set user role here
+            }
         }
     }
 
