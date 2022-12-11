@@ -74,7 +74,7 @@ impl EventHandler for Handler {
     async fn message(&self, ctx: Context, message: Message) {
         let author_id = message.author.id.as_u64();
 
-        if author_id == &self.bot_id || author_id == &self.admin_id {
+        if author_id == &self.bot_id {
             return;
         }
 

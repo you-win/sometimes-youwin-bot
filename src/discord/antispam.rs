@@ -11,16 +11,23 @@ const DEFAULT_SPAM_TIME: u64 = 1;
 
 const MAX_STRIKES: u8 = 3;
 
-#[derive(Default)]
 struct History {
     last_timestamp: Instant,
     strikes: u8,
 }
 
 impl History {
+    /// Create a new `History`.
+    fn new() -> Self {
+        Self {
+            last_timestamp: Instant::now(),
+            strikes: 0,
+        }
+    }
+
     /// Wrapper around `Instant::elapsed`.
-    fn elapsed(&self) -> &Duration {
-        &self.last_timestamp.elapsed()
+    fn elapsed(&self) -> Duration {
+        self.last_timestamp.elapsed()
     }
 
     fn update_timestamp(&mut self) {
@@ -56,9 +63,7 @@ impl Antispam {
     pub fn is_spam(&mut self, user_id: &u64) -> bool {
         match self.chatter_history.get_mut(user_id) {
             Some(mut history) => {
-                let history = *history;
-
-                let r = if history.elapsed() < &self.min_non_spam_time {
+                let r = if history.elapsed() < self.min_non_spam_time {
                     history.add_strike();
                     true
                 } else {
@@ -71,7 +76,7 @@ impl Antispam {
                 r
             }
             None => {
-                let _ = self.chatter_history.insert(*user_id, History::default());
+                let _ = self.chatter_history.insert(*user_id, History::new());
                 false
             }
         }
