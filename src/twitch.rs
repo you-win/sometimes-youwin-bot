@@ -1,6 +1,8 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use crossbeam_channel::Receiver;
+use crossbeam_channel::Sender;
 use twitch_api::twitch_oauth2;
 use twitch_api::TwitchClient;
 use twitch_oauth2::{
@@ -20,8 +22,21 @@ impl TwitchBot {
     }
 }
 
-#[tokio::main]
-pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Debug, Clone)]
+pub enum BotMessage {
+    Debug(String),
+
+    Ready,
+
+    Shutdown,
+}
+
+pub async fn create_bot(
+    receiver: Receiver<crate::CentralMessage>,
+) -> Result<
+    (TwitchClient<'static, reqwest::Client>, Receiver<BotMessage>),
+    Box<dyn std::error::Error>,
+> {
     let mut refresh_token: RefreshToken = RefreshToken::new(crate::TWITCH_REFRESH_TOKEN.into());
     let client_id: ClientId = ClientId::new(crate::TWITCH_CLIENT_ID.into());
     let client_secret: ClientSecret = ClientSecret::new(crate::TWITCH_CLIENT_SECRET.into());
@@ -43,6 +58,14 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
+    // Ok(())
+    todo!()
+}
+
+#[tokio::main]
+pub async fn run_bot(
+    client: TwitchClient<reqwest::Client>,
+) -> Result<(), Box<dyn std::error::Error>> {
     todo!()
 }
 

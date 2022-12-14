@@ -62,7 +62,7 @@ impl Antispam {
     /// Check if the given `user` is spamming.
     pub fn is_spam(&mut self, user_id: &u64) -> bool {
         match self.chatter_history.get_mut(user_id) {
-            Some(mut history) => {
+            Some(history) => {
                 let r = if history.elapsed() < self.min_non_spam_time {
                     history.add_strike();
                     true

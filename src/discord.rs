@@ -1,9 +1,12 @@
 mod antispam;
 mod commands;
 
-use std::{str::FromStr, sync::Arc};
+use std::{
+    str::FromStr,
+    sync::{atomic::AtomicBool, Arc},
+};
 
-use crate::utils;
+use crate::{config::Config, utils};
 use log::{debug, error, info};
 use serenity::{
     async_trait,
@@ -22,8 +25,18 @@ use serenity::{
     prelude::*,
     Client,
 };
+use tokio::sync::{
+    broadcast::{Receiver, Sender},
+    RwLock,
+};
 
 struct Handler {
+    is_initted: Arc<AtomicBool>,
+    central_receiver: Receiver<crate::CentralMessage>,
+    sender: Sender<BotMessage>,
+
+    config: Arc<RwLock<Config>>,
+
     bot_id: u64,
     admin_id: u64,
 
@@ -33,8 +46,17 @@ struct Handler {
 }
 
 impl Handler {
-    pub fn new() -> Self {
+    pub fn new(
+        central_receiver: Receiver<crate::CentralMessage>,
+        discord_sender: Sender<BotMessage>,
+    ) -> Self {
         Self {
+            is_initted: Arc::new(AtomicBool::new(false)),
+            central_receiver: central_receiver,
+            sender: discord_sender,
+
+            config: Arc::new(RwLock::new(Config::new())),
+
             bot_id: crate::DISCORD_BOT_ID.parse().unwrap(),
             admin_id: crate::DISCORD_ADMIN_ID.parse().unwrap(),
 
@@ -56,8 +78,23 @@ impl EventHandler for Handler {
                 let messages = c.messages(&ctx.http, |m| m).await.unwrap();
 
                 for message in messages.iter() {
-                    debug!("{}", &message.content);
-                    //
+                    let content = message
+                        .content
+                        .trim()
+                        .trim_start_matches("`")
+                        .trim_start_matches("TOML")
+                        .trim_end_matches("`")
+                        .trim();
+
+                    match toml::from_str(content) {
+                        Ok(c) => {
+                            // self.sender.send(BotMessage::ConfigUpdated(c)).unwrap();
+                            crate::CONFIG.lock().unwrap().from(&c);
+                        }
+                        Err(e) => {
+                            self.sender.send(BotMessage::Error(e.to_string())).unwrap();
+                        }
+                    };
                 }
             }
             None => panic!(
@@ -66,7 +103,53 @@ impl EventHandler for Handler {
             ),
         }
 
-        // TODO read configuration from bot data channel
+        if !self.is_initted.load(std::sync::atomic::Ordering::Relaxed) {
+            self.is_initted
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+
+            let mut receiver = self.central_receiver.resubscribe();
+            let sender = self.sender.clone();
+            let config = self.config.clone();
+            tokio::spawn(async move {
+                loop {
+                    match receiver.recv().await {
+                        Ok(m) => match m {
+                            // crate::CentralMessage::ConfigUpdated(c) => {
+                            //     config.write().await.from(&c);
+                            // }
+                            crate::CentralMessage::Twitch(_) => {
+                                // TODO stub
+                            }
+                            crate::CentralMessage::Shutdown => {
+                                info!("Shutdown received");
+                                sender.send(BotMessage::Shutdown).unwrap();
+                                break;
+                            }
+                            _ => {}
+                        },
+                        Err(e) => match e {
+                            tokio::sync::broadcast::error::RecvError::Closed => {
+                                error!("Channel closed");
+                                break;
+                            }
+                            tokio::sync::broadcast::error::RecvError::Lagged(n) => {
+                                debug!("Channel lagged by {} messages", n);
+                            }
+                        },
+                    }
+                }
+            });
+        }
+
+        self.guild_id
+            .set_application_commands(&ctx.http, |c| c)
+            .await
+            .unwrap();
+
+        match self.sender.send(BotMessage::Ready) {
+            Ok(_) => debug!("Sent ready message"),
+            Err(e) => error!("{}", e),
+        }
 
         info!("Discord bot ready!");
     }
@@ -104,10 +187,24 @@ impl EventHandler for Handler {
     }
 }
 
-#[tokio::main]
-pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Debug, Clone)]
+pub enum BotMessage {
+    Debug(String),
+    Error(String),
+
+    Ready,
+
+    ConfigUpdated(Config),
+
+    Shutdown,
+}
+
+pub async fn run_bot(
+    central_receiver: Receiver<crate::CentralMessage>,
+    discord_sender: Sender<BotMessage>,
+) {
     let framework = StandardFramework::new()
-        .configure(configure_bot)
+        .configure(|c| c.prefix(crate::BOT_PREFIX).allow_dm(false))
         .group(&commands::GENERAL_GROUP);
 
     let token = crate::DISCORD_TOKEN;
@@ -118,21 +215,13 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         | GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::GUILD_MESSAGE_REACTIONS
         | GatewayIntents::MESSAGE_CONTENT;
+    let handler = Handler::new(central_receiver, discord_sender);
 
     let mut client = Client::builder(token, intents)
-        .event_handler(Handler::new())
+        .event_handler(handler)
         .framework(framework)
-        .await?;
+        .await
+        .unwrap();
 
-    client.start().await?;
-
-    Ok(())
-}
-
-fn configure_bot(c: &mut Configuration) -> &mut Configuration {
-    c.prefix(crate::BOT_PREFIX);
-
-    c.allow_dm(false);
-
-    c
+    client.start().await.unwrap();
 }
