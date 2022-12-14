@@ -21,7 +21,9 @@ async fn ping(ctx: &Context, message: &Message) -> CommandResult {
 
 #[command]
 async fn whoami(ctx: &Context, message: &Message) -> CommandResult {
-    message.reply(ctx, c::whoami(&message.author.name)).await?;
+    message
+        .reply(ctx, c::whoami(&message.author.name.clone().into()))
+        .await?;
 
     Ok(())
 }
@@ -37,7 +39,7 @@ async fn high_five(ctx: &Context, message: &Message) -> CommandResult {
 #[command]
 #[aliases("ferris-say", "ferrissay", "cowsay")]
 async fn ferris_say(ctx: &Context, message: &Message) -> CommandResult {
-    let val = match c::ferris_say(&utils::strip_command_prefix(&message.content), 36) {
+    let val = match c::ferris_say(&utils::strip_command_prefix(&message.content).into()).await {
         Ok(v) => v,
         Err(e) => e.to_string(),
     };
@@ -49,12 +51,12 @@ async fn ferris_say(ctx: &Context, message: &Message) -> CommandResult {
 
 #[command]
 async fn roll(ctx: &Context, message: &Message) -> CommandResult {
-    let sides = match utils::strip_command_prefix(&message.content).parse() {
+    let sides: u32 = match utils::strip_command_prefix(&message.content).parse() {
         Ok(v) => v,
         Err(_) => 6,
     };
 
-    let val = c::roll(sides);
+    let val = c::roll(&sides.into());
 
     message.reply(ctx, val).await?;
 
@@ -64,7 +66,7 @@ async fn roll(ctx: &Context, message: &Message) -> CommandResult {
 #[command]
 async fn config(ctx: &Context, message: &Message) -> CommandResult {
     message
-        .reply(ctx, format!("```\n{}```", c::config()))
+        .reply(ctx, format!("```\n{}```", c::config().await))
         .await?;
 
     Ok(())

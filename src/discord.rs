@@ -2,11 +2,13 @@ mod antispam;
 mod commands;
 
 use std::{
+    collections::HashMap,
     str::FromStr,
     sync::{atomic::AtomicBool, Arc},
 };
 
 use crate::{config::Config, utils};
+use lazy_static::lazy_static;
 use log::{debug, error, info};
 use serenity::{
     async_trait,
@@ -20,7 +22,7 @@ use serenity::{
     },
     model::{
         channel::Message,
-        prelude::{ChannelId, GuildId, Reaction, Ready},
+        prelude::{ChannelId, GuildId, MessageId, Reaction, ReactionType, Ready, UserId},
     },
     prelude::*,
     Client,
@@ -30,12 +32,14 @@ use tokio::sync::{
     RwLock,
 };
 
+lazy_static! {
+    static ref DISCORD_ROLES_CHANNEL_ID_U64: u64 = crate::DISCORD_ROLES_CHANNEL_ID.parse().unwrap();
+}
+
 struct Handler {
     is_initted: Arc<AtomicBool>,
     central_receiver: Receiver<crate::CentralMessage>,
     sender: Sender<BotMessage>,
-
-    config: Arc<RwLock<Config>>,
 
     bot_id: u64,
     admin_id: u64,
@@ -43,6 +47,8 @@ struct Handler {
     guild_id: GuildId,
 
     antispam: Arc<RwLock<antispam::Antispam>>,
+    /// Emoji to role id
+    reaction_roles: Arc<RwLock<HashMap<String, u64>>>,
 }
 
 impl Handler {
@@ -55,14 +61,13 @@ impl Handler {
             central_receiver: central_receiver,
             sender: discord_sender,
 
-            config: Arc::new(RwLock::new(Config::new())),
-
             bot_id: crate::DISCORD_BOT_ID.parse().unwrap(),
             admin_id: crate::DISCORD_ADMIN_ID.parse().unwrap(),
 
             guild_id: GuildId(crate::DISCORD_GUILD_ID.parse().unwrap()),
 
             antispam: Arc::new(RwLock::new(antispam::Antispam::new())),
+            reaction_roles: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -72,6 +77,7 @@ impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         info!("Discord bot connected!");
 
+        // TODO can directly access the channel instead of iterating through all channels
         let mut channels = self.guild_id.channels(&ctx.http).await.unwrap();
         match channels.get_mut(&ChannelId::from_str(crate::DISCORD_BOT_DATA_CHANNEL_ID).unwrap()) {
             Some(c) => {
@@ -89,7 +95,7 @@ impl EventHandler for Handler {
                     match toml::from_str(content) {
                         Ok(c) => {
                             // self.sender.send(BotMessage::ConfigUpdated(c)).unwrap();
-                            crate::CONFIG.lock().unwrap().from(&c);
+                            crate::CONFIG.write().await.from(&c);
                         }
                         Err(e) => {
                             self.sender.send(BotMessage::Error(e.to_string())).unwrap();
@@ -103,13 +109,13 @@ impl EventHandler for Handler {
             ),
         }
 
+        // Job thread
         if !self.is_initted.load(std::sync::atomic::Ordering::Relaxed) {
             self.is_initted
                 .store(true, std::sync::atomic::Ordering::Relaxed);
 
             let mut receiver = self.central_receiver.resubscribe();
             let sender = self.sender.clone();
-            let config = self.config.clone();
             tokio::spawn(async move {
                 loop {
                     match receiver.recv().await {
@@ -141,6 +147,108 @@ impl EventHandler for Handler {
             });
         }
 
+        // Reaction roles
+        {
+            let configured_roles = &crate::CONFIG.read().await.reaction_roles;
+            let mut cached_rr = self.reaction_roles.write().await;
+            let roles = self.guild_id.roles(&ctx.http).await.unwrap();
+            for (_, (id, role)) in roles.iter().enumerate() {
+                let id = id.as_u64();
+                let emoji = match configured_roles.get(&role.name) {
+                    Some(v) => v,
+                    None => continue,
+                };
+                cached_rr.insert(emoji.clone(), id.clone());
+            }
+        }
+
+        {
+            let cached_rr = self.reaction_roles.read().await;
+
+            let roles_channel = ChannelId(*DISCORD_ROLES_CHANNEL_ID_U64);
+            match roles_channel.messages(&ctx.http, |f| f).await {
+                Ok(v) => {
+                    for m in v.iter() {
+                        for (_, (emoji, id)) in cached_rr.iter().enumerate() {
+                            const PAGE_MAX: u8 = 100;
+                            let mut starting_user_id: u64 = 0;
+                            loop {
+                                let users = match m
+                                    .reaction_users(
+                                        &ctx.http,
+                                        ReactionType::Unicode(emoji.clone()),
+                                        Some(PAGE_MAX),
+                                        if starting_user_id == 0 {
+                                            None
+                                        } else {
+                                            Some(UserId(starting_user_id))
+                                        },
+                                    )
+                                    .await
+                                {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        error!("Unable to get users that reacted to {}", &emoji);
+                                        break;
+                                    }
+                                };
+
+                                let mut last_user_id = match users.last() {
+                                    Some(v) => v.id.as_u64(),
+                                    None => break,
+                                };
+                                for user in users.iter() {
+                                    let has_role = match user
+                                        .has_role(&ctx.http, self.guild_id, *id)
+                                        .await
+                                    {
+                                        Ok(v) => v,
+                                        Err(e) => {
+                                            error!("Error occurred for user {}: {}", &user.name, e);
+                                            continue;
+                                        }
+                                    };
+
+                                    if !has_role {
+                                        let mut member =
+                                            match self.guild_id.member(&ctx.http, user.id).await {
+                                                Ok(v) => v,
+                                                Err(e) => {
+                                                    error!(
+                                                        "Unable to get member data for {}",
+                                                        &user.name
+                                                    );
+                                                    continue;
+                                                }
+                                            };
+
+                                        match member.add_role(&ctx.http, *id).await {
+                                            Ok(_) => {}
+                                            Err(e) => {
+                                                error!(
+                                                    "Unable to handle role {} for user {}",
+                                                    &emoji, &user.name
+                                                );
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if users.len() >= PAGE_MAX.into() {
+                                    starting_user_id = last_user_id.clone();
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => error!("Unable to process old roles"),
+            }
+        }
+
+        // Set application commands
         self.guild_id
             .set_application_commands(&ctx.http, |c| c)
             .await
@@ -179,11 +287,105 @@ impl EventHandler for Handler {
     }
 
     async fn reaction_add(&self, ctx: Context, add_reaction: Reaction) {
-        //
+        if *DISCORD_ROLES_CHANNEL_ID_U64 != *add_reaction.channel_id.as_u64() {
+            return;
+        }
+
+        let user_id = match add_reaction.user_id {
+            Some(id) => id,
+            None => {
+                error!("Unknown user added reaction");
+                return;
+            }
+        };
+
+        match add_reaction.emoji {
+            ReactionType::Unicode(u) => {
+                debug!("Reaction added: {}", u);
+
+                let rr = self.reaction_roles.write().await;
+
+                match rr.get(&u) {
+                    Some(v) => match self.guild_id.member(&ctx.http, user_id).await {
+                        Ok(mut m) => match m.add_role(&ctx.http, *v).await {
+                            Ok(_) => debug!("Added role {} to {}", &u, &m.user.name),
+                            Err(e) => error!("{}", e),
+                        },
+                        Err(e) => error!("{}", e),
+                    },
+                    None => error!("Tried to add unknown role from emoji: {}", &u),
+                }
+            }
+            ReactionType::Custom { id, name, .. } => {
+                ChannelId(crate::DISCORD_BOT_CONTROLLER_CHANNEL_ID.parse().unwrap())
+                    .send_message(&ctx.http, |f| {
+                        f.content(format!(
+                            "Non-standard reaction emoji used: id - {}, name - {}",
+                            id.as_u64(),
+                            name.unwrap_or_default()
+                        ))
+                    })
+                    .await
+                    .unwrap();
+            }
+            _ => {
+                ChannelId(crate::DISCORD_BOT_CONTROLLER_CHANNEL_ID.parse().unwrap())
+                    .send_message(&ctx.http, |f| f.content("Unknown reaction added"))
+                    .await
+                    .unwrap();
+            }
+        }
     }
 
     async fn reaction_remove(&self, ctx: Context, remove_reaction: Reaction) {
-        //
+        if *DISCORD_ROLES_CHANNEL_ID_U64 != *remove_reaction.channel_id.as_u64() {
+            return;
+        }
+
+        let user_id = match remove_reaction.user_id {
+            Some(id) => id,
+            None => {
+                error!("Unknown user added reaction");
+                return;
+            }
+        };
+
+        match remove_reaction.emoji {
+            ReactionType::Unicode(u) => {
+                debug!("Reaction added: {}", u);
+
+                let rr = self.reaction_roles.write().await;
+
+                match rr.get(&u) {
+                    Some(v) => match self.guild_id.member(&ctx.http, user_id).await {
+                        Ok(mut m) => match m.remove_role(&ctx.http, *v).await {
+                            Ok(_) => debug!("Removed role {} from {}", &u, &m.user.name),
+                            Err(e) => error!("{}", e),
+                        },
+                        Err(e) => error!("{}", e),
+                    },
+                    None => error!("Tried to add unknown role from emoji: {}", &u),
+                }
+            }
+            ReactionType::Custom { id, name, .. } => {
+                ChannelId(crate::DISCORD_BOT_CONTROLLER_CHANNEL_ID.parse().unwrap())
+                    .send_message(&ctx.http, |f| {
+                        f.content(format!(
+                            "Non-standard reaction emoji used: id - {}, name - {}",
+                            id.as_u64(),
+                            name.unwrap_or_default()
+                        ))
+                    })
+                    .await
+                    .unwrap();
+            }
+            _ => {
+                ChannelId(crate::DISCORD_BOT_CONTROLLER_CHANNEL_ID.parse().unwrap())
+                    .send_message(&ctx.http, |f| f.content("Unknown reaction added"))
+                    .await
+                    .unwrap();
+            }
+        }
     }
 }
 

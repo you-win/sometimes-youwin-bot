@@ -89,16 +89,15 @@ pub enum DiscordObject {
 pub enum TwitchObject {}
 
 #[derive(Debug, Clone)]
-pub enum CommandInput<T, S> {
-    UInt(u32),
+pub enum CommandInput {
+    UInt(u64),
     String(String),
-    Tuple(T, S),
     Vec(Vec<Value>),
     Map(HashMap<String, Value>),
     Unknown,
 }
 
-impl<T, S> From<&[CommandDataOption]> for CommandInput<T, S> {
+impl From<&[CommandDataOption]> for CommandInput {
     fn from(options: &[CommandDataOption]) -> Self {
         Self::Vec(
             options
@@ -109,15 +108,21 @@ impl<T, S> From<&[CommandDataOption]> for CommandInput<T, S> {
     }
 }
 
-impl<T, S> From<&String> for CommandInput<T, S> {
-    fn from(s: &String) -> Self {
+impl From<String> for CommandInput {
+    fn from(s: String) -> Self {
         Self::String(s.clone())
     }
 }
 
-impl<T, S> From<&u32> for CommandInput<T, S> {
-    fn from(n: &u32) -> Self {
-        Self::UInt(n.clone())
+impl From<u32> for CommandInput {
+    fn from(n: u32) -> Self {
+        Self::UInt(n.into())
+    }
+}
+
+impl From<u64> for CommandInput {
+    fn from(n: u64) -> Self {
+        Self::UInt(n.into())
     }
 }
 
@@ -127,8 +132,11 @@ pub fn ping() -> String {
 }
 
 /// Receive a username and reply appropriately.
-pub fn whoami(username: &String) -> String {
-    format!("You are {}!", username)
+pub fn whoami(command: &CommandInput) -> String {
+    match command {
+        CommandInput::String(s) => format!("You are {}!", s),
+        _ => unreachable!(),
+    }
 }
 
 /// Reply with a clap emoji.
@@ -137,11 +145,17 @@ pub fn high_five() -> String {
 }
 
 /// Similar to how `cowsay` works, take a message and make it fancy.
-pub fn ferris_say(message: &String, max_width: usize) -> Result<String> {
+pub async fn ferris_say(command: &CommandInput) -> Result<String> {
+    let message = match command {
+        CommandInput::String(s) => s,
+        _ => unreachable!(),
+    };
+    let max_width = crate::CONFIG.read().await.max_message_width;
+
     let buffer = vec![];
     let mut writer = BufWriter::new(buffer);
 
-    ferris_says::say(message.as_bytes(), max_width, &mut writer)?;
+    ferris_says::say(message.as_bytes(), max_width.into(), &mut writer)?;
 
     match String::from_utf8(writer.buffer().to_vec()) {
         Ok(v) => Ok(v),
@@ -151,20 +165,30 @@ pub fn ferris_say(message: &String, max_width: usize) -> Result<String> {
 
 /// Roll a dice with the given number of sides. The number of sides must always
 /// be equal to or greater than 1.
-pub fn roll(sides: u32) -> u32 {
+pub fn roll(command: &CommandInput) -> u32 {
     let mut rng = rand::thread_rng();
 
-    let mut sides = sides;
+    let mut sides = match command {
+        CommandInput::UInt(u) => *u,
+        _ => unreachable!(),
+    };
     if sides < 1 {
         sides += 1;
     }
 
-    rng.gen_range(1..=sides)
+    rng.gen_range(1..=(sides as u32))
 }
 
 /// Returns public fields from the config.
-pub fn config() -> String {
-    let config = crate::CONFIG.lock().unwrap();
+pub async fn config() -> String {
+    let config = crate::CONFIG.read().await;
 
-    format!("reaction_roles: {:?}", config.reaction_roles)
+    format!(
+        "max_message_width: {:?}\nreaction_roles: {:?}",
+        config.max_message_width, config.reaction_roles
+    )
+}
+
+pub fn reload_config() {
+    //
 }

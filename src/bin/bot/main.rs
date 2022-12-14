@@ -54,15 +54,6 @@ async fn main() {
                 discord::BotMessage::Debug(t) => debug!("Discord receiver: {}", t),
                 discord::BotMessage::Error(t) => error!("Discord receiver: {}", t),
                 discord::BotMessage::Ready => info!("Discord receiver ready!"),
-                // discord::BotMessage::ConfigUpdated(c) => {
-                //     debug!("{:?}", &c);
-
-                //     config = c;
-
-                //     host_sender
-                //         .send(yw::CentralMessage::ConfigUpdated(config))
-                //         .unwrap();
-                // }
                 discord::BotMessage::Shutdown => debug!("Discord shutdown received"),
                 _ => {}
             },
