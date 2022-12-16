@@ -4,7 +4,7 @@ use serenity::{
         macros::{command, group},
         CommandResult,
     },
-    model::prelude::Message,
+    model::prelude::{ChannelId, Message},
     prelude::*,
 };
 
@@ -39,12 +39,28 @@ async fn high_five(ctx: &Context, message: &Message) -> CommandResult {
 #[command]
 #[aliases("ferris-say", "ferrissay", "cowsay")]
 async fn ferris_say(ctx: &Context, message: &Message) -> CommandResult {
-    let val = match c::ferris_say(&utils::strip_command_prefix(&message.content).into()).await {
+    let val = match c::ferris_say(
+        &format!(
+            "{}: {}",
+            &message
+                .author_nick(&ctx)
+                .await
+                .unwrap_or(message.author.name.clone()),
+            &utils::strip_command_prefix(&message.content)
+        )
+        .into(),
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => e.to_string(),
     };
 
-    message.reply(ctx, format!("```\n{}```", val)).await?;
+    message.delete(&ctx).await?;
+    message
+        .channel_id
+        .send_message(&ctx, |cm| cm.content(format!("```\n{}```", val)))
+        .await?;
 
     Ok(())
 }

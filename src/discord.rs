@@ -5,6 +5,7 @@ use std::{
     collections::HashMap,
     str::FromStr,
     sync::{atomic::AtomicBool, Arc},
+    time::Duration,
 };
 
 use crate::{config::Config, utils};
@@ -114,10 +115,14 @@ impl EventHandler for Handler {
             self.is_initted
                 .store(true, std::sync::atomic::Ordering::Relaxed);
 
+            let tick_duration = crate::CONFIG.read().await.job_tick_duration;
+
             let mut receiver = self.central_receiver.resubscribe();
             let sender = self.sender.clone();
             tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs_f32(tick_duration));
                 loop {
+                    interval.tick().await;
                     match receiver.recv().await {
                         Ok(m) => match m {
                             // crate::CentralMessage::ConfigUpdated(c) => {
@@ -269,19 +274,21 @@ impl EventHandler for Handler {
             return;
         }
 
-        if self.antispam.write().await.is_spam(author_id) {
+        let mut antispam = self.antispam.write().await;
+
+        if antispam.is_spam(author_id) {
             debug!("Spammer detected {}", &message.author.name);
             match message.reply_mention(&ctx, "Please do not spam").await {
                 Ok(_) => {}
                 Err(e) => error!("Unable to send spammer detected message: {}", e.to_string()),
             }
-            match message.delete(ctx).await {
+            match message.delete(&ctx).await {
                 Ok(_) => {}
                 Err(e) => error!("Unable to delete spam message: {}", e.to_string()),
             }
 
-            if self.antispam.write().await.should_timeout(author_id) {
-                // TODO set user role here
+            if antispam.should_timeout(author_id) {
+                timeout_member(&ctx, &self.guild_id, author_id).await;
             }
         }
     }
@@ -389,6 +396,26 @@ impl EventHandler for Handler {
     }
 }
 
+/// Try and timeout a guild member if there is a valid timeout role configured.
+async fn timeout_member(ctx: &Context, guild_id: &GuildId, author_id: &u64) {
+    let timeout_role_id = crate::CONFIG.read().await.timeout_role_id;
+    if timeout_role_id == 0 {
+        debug!("No timeout role specified");
+        return;
+    }
+
+    match guild_id.member(ctx, *author_id).await {
+        Ok(mut m) => match m.add_role(ctx, timeout_role_id).await {
+            Ok(_) => {}
+            Err(e) => error!("Unable to timeout member {:?}: {:?}", author_id, e),
+        },
+        Err(e) => error!(
+            "Tried to timeout non-existent member {:?}: {:?}",
+            author_id, e
+        ),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum BotMessage {
     Debug(String),
@@ -406,7 +433,10 @@ pub async fn run_bot(
     discord_sender: Sender<BotMessage>,
 ) {
     let framework = StandardFramework::new()
-        .configure(|c| c.prefix(crate::BOT_PREFIX).allow_dm(false))
+        .configure(|c| {
+            c.prefix(crate::BOT_PREFIX).allow_dm(false);
+            c
+        })
         .group(&commands::GENERAL_GROUP);
 
     let token = crate::DISCORD_TOKEN;
