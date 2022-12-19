@@ -25,6 +25,7 @@ async fn main() {
 
     let (host_sender, _host_receiver) = broadcast::channel(10);
     let (discord_sender, mut discord_receiver) = broadcast::channel(10);
+    let (twitch_sender, mut twitch_receiver) = broadcast::channel(10);
 
     {
         let interrupt_sender = host_sender.clone();
@@ -42,6 +43,13 @@ async fn main() {
     let host_sender_discord = host_sender.subscribe();
     let discord_join_handle = tokio::spawn(async move {
         discord::run_bot(host_sender_discord, discord_sender).await;
+    });
+
+    let user_token = twitch::create_user_token().await.unwrap();
+
+    let host_sender_twitch = host_sender.subscribe();
+    let twitch_join_handle = tokio::spawn(async move {
+        twitch::run_bot(host_sender_twitch, twitch_sender, user_token).await;
     });
 
     loop {
@@ -73,10 +81,12 @@ async fn main() {
 
     {
         discord_join_handle.abort();
+        twitch_join_handle.abort();
     }
 
     {
         assert!(discord_join_handle.await.unwrap_err().is_cancelled());
+        assert!(twitch_join_handle.await.unwrap_err().is_cancelled());
     }
 
     info!("Finished!");
