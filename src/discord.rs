@@ -123,7 +123,7 @@ impl EventHandler for Handler {
                 let mut interval = tokio::time::interval(Duration::from_secs_f32(tick_duration));
                 loop {
                     interval.tick().await;
-                    match receiver.recv().await {
+                    match receiver.try_recv() {
                         Ok(m) => match m {
                             // crate::CentralMessage::ConfigUpdated(c) => {
                             //     config.write().await.from(&c);
@@ -139,13 +139,14 @@ impl EventHandler for Handler {
                             _ => {}
                         },
                         Err(e) => match e {
-                            tokio::sync::broadcast::error::RecvError::Closed => {
+                            tokio::sync::broadcast::error::TryRecvError::Closed => {
                                 error!("Channel closed");
                                 break;
                             }
-                            tokio::sync::broadcast::error::RecvError::Lagged(n) => {
+                            tokio::sync::broadcast::error::TryRecvError::Lagged(n) => {
                                 debug!("Channel lagged by {} messages", n);
                             }
+                            _ => {}
                         },
                     }
                 }
@@ -431,7 +432,7 @@ pub enum BotMessage {
 pub async fn run_bot(
     central_receiver: Receiver<crate::CentralMessage>,
     discord_sender: Sender<BotMessage>,
-) {
+) -> anyhow::Result<()> {
     let framework = StandardFramework::new()
         .configure(|c| {
             c.prefix(crate::BOT_PREFIX).allow_dm(false);
@@ -452,8 +453,7 @@ pub async fn run_bot(
     let mut client = Client::builder(token, intents)
         .event_handler(handler)
         .framework(framework)
-        .await
-        .unwrap();
+        .await?;
 
-    client.start().await.unwrap();
+    client.start().await.map_err(|e| anyhow::Error::from(e))
 }

@@ -7,7 +7,7 @@ use sometimes_youwin as yw;
 use yw::{config::Config, discord, twitch, IS_RUNNING};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     println!("Starting build {} with rev {}", yw::BUILD_NAME, yw::GIT_REV);
 
     env_logger::Builder::new()
@@ -36,20 +36,21 @@ async fn main() {
                 Ok(_) => info!("Interrupt sent!"),
                 Err(e) => error!("{}", e),
             }
-        })
-        .unwrap();
+        })?;
     }
 
     let host_sender_discord = host_sender.subscribe();
     let discord_join_handle = tokio::spawn(async move {
-        discord::run_bot(host_sender_discord, discord_sender).await;
+        discord::run_bot(host_sender_discord, discord_sender)
+            .await
+            .unwrap();
     });
-
-    let user_token = twitch::create_user_token().await.unwrap();
 
     let host_sender_twitch = host_sender.subscribe();
     let twitch_join_handle = tokio::spawn(async move {
-        twitch::run_bot(host_sender_twitch, twitch_sender, user_token).await;
+        twitch::run_bot(host_sender_twitch, twitch_sender)
+            .await
+            .unwrap();
     });
 
     loop {
@@ -77,6 +78,23 @@ async fn main() {
                 }
             },
         }
+
+        match twitch_receiver.try_recv() {
+            Ok(v) => match v {
+                _ => {}
+            },
+            Err(e) => match e {
+                broadcast::error::TryRecvError::Empty => {}
+                broadcast::error::TryRecvError::Closed => {
+                    error!("Discord receiver closed");
+                    host_sender.send(yw::CentralMessage::Shutdown).unwrap();
+                    break;
+                }
+                broadcast::error::TryRecvError::Lagged(n) => {
+                    error!("Discord receiver lagged by {} messages", n)
+                }
+            },
+        }
     }
 
     {
@@ -86,8 +104,10 @@ async fn main() {
 
     {
         assert!(discord_join_handle.await.unwrap_err().is_cancelled());
-        assert!(twitch_join_handle.await.unwrap_err().is_cancelled());
+        assert!(twitch_join_handle.await.is_ok());
     }
 
     info!("Finished!");
+
+    Ok(())
 }

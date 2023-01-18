@@ -12,6 +12,7 @@ use serenity::model::{
 
 use crate::{config::Config, utils};
 
+#[derive(Debug)]
 pub enum CommandError {
     InvalidInput,
     StringConversion(String),
@@ -111,6 +112,12 @@ impl From<&[CommandDataOption]> for CommandInput {
 impl From<String> for CommandInput {
     fn from(s: String) -> Self {
         Self::String(s.clone())
+    }
+}
+
+impl From<&str> for CommandInput {
+    fn from(s: &str) -> Self {
+        Self::String(s.to_string())
     }
 }
 
