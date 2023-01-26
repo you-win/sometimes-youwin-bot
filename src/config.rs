@@ -29,6 +29,9 @@ impl Config {
 
     pub fn from(&mut self, other: &Config) {
         other.reaction_roles.clone_into(&mut self.reaction_roles);
+        self.max_message_width = other.max_message_width;
+        self.timeout_role_id = other.timeout_role_id;
+        self.job_tick_duration = other.job_tick_duration;
     }
 }
 

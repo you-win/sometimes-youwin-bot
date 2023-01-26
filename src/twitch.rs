@@ -13,6 +13,8 @@ use twitch_api::{
 };
 use twitchchat::connector;
 use twitchchat::messages::Privmsg;
+use twitchchat::writer::AsyncWriter;
+use twitchchat::writer::MpscWriter;
 use twitchchat::AsyncRunner;
 use twitchchat::UserConfig;
 
@@ -23,7 +25,7 @@ pub enum BotMessage {
     Debug(String),
 
     Ready,
-
+    ChannelLive,
     Shutdown,
 }
 
@@ -66,6 +68,8 @@ pub async fn run_bot(
         }
     };
 
+    let mut bot_config = crate::Config::new();
+
     let connector = connector::tokio::Connector::twitch()?;
     let mut irc_client = AsyncRunner::connect(connector, &irc_user_config).await?;
 
@@ -78,11 +82,28 @@ pub async fn run_bot(
     let sender = twitch_sender.clone();
 
     tokio::spawn(async move {
-        // TODO pull this value from the config.
-        let mut interval = tokio::time::interval(Duration::from_secs_f32(0.5));
+        let mut interval = tokio::time::interval(*crate::TICK_DURATION);
+
+        // TODO this sucks
+        let mut ticks: u16 = 0;
+        const check_live_ticks: u16 = 120;
 
         loop {
             interval.tick().await;
+
+            ticks += 1;
+            if ticks >= check_live_ticks {
+                ticks = 0;
+                if let Ok(Some(r)) = client
+                    .helix
+                    .get_channel_from_login(crate::TWITCH_CHANNEL_NAME, &user_token)
+                    .await
+                {
+                    if let Err(e) = sender.send(BotMessage::ChannelLive) {
+                        error!("{:?}", e);
+                    }
+                }
+            }
 
             match irc_client.next_message().await {
                 Ok(s) => match s {
@@ -131,6 +152,9 @@ pub async fn run_bot(
 
             match receiver.try_recv() {
                 Ok(m) => match m {
+                    crate::CentralMessage::ConfigUpdated(c) => {
+                        bot_config = c.clone();
+                    }
                     crate::CentralMessage::Discord(_) => {
                         // TODO stub
                     }
@@ -160,13 +184,9 @@ pub async fn run_bot(
 }
 
 async fn handle_privmsg(
-    writer: &mut twitchchat::writer::AsyncWriter<twitchchat::writer::MpscWriter>,
+    writer: &mut AsyncWriter<MpscWriter>,
     msg: &Privmsg<'_>,
 ) -> anyhow::Result<()> {
-    if let Err(e) = writer.flush() {
-        return Err(e.into());
-    }
-
     let id = msg.tags().get("id").unwrap_or_default();
     if id.is_empty() {
         debug!("No id found for message {}", msg.data());
@@ -179,16 +199,29 @@ async fn handle_privmsg(
         return Ok(());
     }
 
-    let text = text.strip_prefix(crate::BOT_PREFIX).unwrap_or_default();
+    let cmd = text.strip_prefix(crate::BOT_PREFIX).unwrap_or_default();
 
-    let output: String = match text {
+    let (cmd, args) = cmd.split_once(" ").unwrap_or((cmd, ""));
+
+    let output: String = match cmd {
         "ping" => commands::ping(),
         "whoami" => commands::whoami(&msg.name().into()),
         "high-five" => commands::high_five(),
-        "ferris-say" => {
-            commands::ferris_say(&text.strip_prefix("ferris-say").unwrap_or_default().into())
-                .await
-                .map_err(anyhow::Error::msg)?
+        "ferris-say" | "ferrissay" | "cowsay" => {
+            format!("{} is not supported in Twitch chat", cmd).into()
+            // commands::ferris_say(&args.into()).await.unwrap()
+        }
+        "roll" => {
+            let num: u64 = match args.parse() {
+                Ok(v) => v,
+                Err(_) => 6,
+            };
+
+            commands::roll(&num.into()).to_string()
+        }
+        // "config" => commands::config().await.replace("\n", " "),
+        "help" => {
+            format!("?ping, ?whoami, ?high-five, ?roll <number>")
         }
         _ => return Ok(()),
     };

@@ -9,7 +9,7 @@ use serenity::{
 };
 
 #[group]
-#[commands(ping, whoami, high_five, ferris_say, roll, config)]
+#[commands(ping, whoami, high_five, ferris_say, roll)]
 pub struct General;
 
 #[command]
@@ -79,11 +79,11 @@ async fn roll(ctx: &Context, message: &Message) -> CommandResult {
     Ok(())
 }
 
-#[command]
-async fn config(ctx: &Context, message: &Message) -> CommandResult {
-    message
-        .reply(ctx, format!("```\n{}```", c::config().await))
-        .await?;
+// #[command]
+// async fn config(ctx: &Context, message: &Message) -> CommandResult {
+//     message
+//         .reply(ctx, format!("```\n{}```", c::config().await))
+//         .await?;
 
-    Ok(())
-}
+//     Ok(())
+// }

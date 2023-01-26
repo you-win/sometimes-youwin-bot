@@ -12,12 +12,13 @@ name = "sometimes_youwin"
 name = "bot"
 path = "src/bin/bot/main.rs"
 
-[[bin]]
-name = "authorize"
-path = "src/bin/authorize/main.rs"
+# [[bin]]
+# name = "authorize"
+# path = "src/bin/authorize/main.rs"
 
 [dependencies]
 anyhow = "1.0"
+thiserror = "1.0"
 log = "0.4"
 env_logger = "0.9"
 ctrlc = "3.2"

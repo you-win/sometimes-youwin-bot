@@ -12,7 +12,7 @@ use serenity::model::{
 
 use crate::{config::Config, utils};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CommandError {
     InvalidInput,
     StringConversion(String),
@@ -157,12 +157,13 @@ pub async fn ferris_say(command: &CommandInput) -> Result<String> {
         CommandInput::String(s) => s,
         _ => unreachable!(),
     };
-    let max_width = crate::CONFIG.read().await.max_message_width;
+    // let max_width = crate::CONFIG.read().await.max_message_width;
+    let max_width: usize = 36;
 
     let buffer = vec![];
     let mut writer = BufWriter::new(buffer);
 
-    ferris_says::say(message.as_bytes(), max_width.into(), &mut writer)?;
+    ferris_says::say(message.as_bytes(), max_width, &mut writer)?;
 
     match String::from_utf8(writer.buffer().to_vec()) {
         Ok(v) => Ok(v),
@@ -187,14 +188,16 @@ pub fn roll(command: &CommandInput) -> u32 {
 }
 
 /// Returns public fields from the config.
-pub async fn config() -> String {
-    let config = crate::CONFIG.read().await;
+// pub async fn config() -> String {
+//     // let config = crate::CONFIG.read().await;
 
-    format!(
-        "max_message_width: {:?}\nreaction_roles: {:?}",
-        config.max_message_width, config.reaction_roles
-    )
-}
+//     // format!(
+//     //     "max_message_width: {:?}\nreaction_roles: {:?}",
+//     //     config.max_message_width, config.reaction_roles
+//     // )
+
+//     format!("max_message_width: {:?}\nreaction_roles: {:?}", 36, "eh")
+// }
 
 pub fn reload_config() {
     //

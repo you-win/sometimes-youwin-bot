@@ -47,6 +47,8 @@ struct Handler {
 
     guild_id: GuildId,
 
+    config: Arc<RwLock<crate::Config>>,
+
     antispam: Arc<RwLock<antispam::Antispam>>,
     /// Emoji to role id
     reaction_roles: Arc<RwLock<HashMap<String, u64>>>,
@@ -66,6 +68,8 @@ impl Handler {
             admin_id: crate::DISCORD_ADMIN_ID.parse().unwrap(),
 
             guild_id: GuildId(crate::DISCORD_GUILD_ID.parse().unwrap()),
+
+            config: Arc::new(RwLock::new(crate::Config::new())),
 
             antispam: Arc::new(RwLock::new(antispam::Antispam::new())),
             reaction_roles: Arc::new(RwLock::new(HashMap::new())),
@@ -95,8 +99,8 @@ impl EventHandler for Handler {
 
                     match toml::from_str(content) {
                         Ok(c) => {
-                            // self.sender.send(BotMessage::ConfigUpdated(c)).unwrap();
-                            crate::CONFIG.write().await.from(&c);
+                            self.sender.send(BotMessage::ConfigUpdated(c)).unwrap();
+                            // crate::CONFIG.write().await.from(&c);
                         }
                         Err(e) => {
                             self.sender.send(BotMessage::Error(e.to_string())).unwrap();
@@ -115,12 +119,10 @@ impl EventHandler for Handler {
             self.is_initted
                 .store(true, std::sync::atomic::Ordering::Relaxed);
 
-            let tick_duration = crate::CONFIG.read().await.job_tick_duration;
-
             let mut receiver = self.central_receiver.resubscribe();
             let sender = self.sender.clone();
             tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs_f32(tick_duration));
+                let mut interval = tokio::time::interval(*crate::TICK_DURATION);
                 loop {
                     interval.tick().await;
                     match receiver.try_recv() {
@@ -155,7 +157,8 @@ impl EventHandler for Handler {
 
         // Reaction roles
         {
-            let configured_roles = &crate::CONFIG.read().await.reaction_roles;
+            // let configured_roles = &crate::CONFIG.read().await.reaction_roles;
+            let configured_roles = &self.config.read().await.reaction_roles;
             let mut cached_rr = self.reaction_roles.write().await;
             let roles = self.guild_id.roles(&ctx.http).await.unwrap();
             for (_, (id, role)) in roles.iter().enumerate() {
@@ -289,7 +292,13 @@ impl EventHandler for Handler {
             }
 
             if antispam.should_timeout(author_id) {
-                timeout_member(&ctx, &self.guild_id, author_id).await;
+                timeout_member(
+                    &ctx,
+                    &self.guild_id,
+                    self.config.read().await.timeout_role_id,
+                    author_id,
+                )
+                .await;
             }
         }
     }
@@ -398,8 +407,8 @@ impl EventHandler for Handler {
 }
 
 /// Try and timeout a guild member if there is a valid timeout role configured.
-async fn timeout_member(ctx: &Context, guild_id: &GuildId, author_id: &u64) {
-    let timeout_role_id = crate::CONFIG.read().await.timeout_role_id;
+async fn timeout_member(ctx: &Context, guild_id: &GuildId, timeout_role_id: u64, author_id: &u64) {
+    // let timeout_role_id = crate::CONFIG.read().await.timeout_role_id;
     if timeout_role_id == 0 {
         debug!("No timeout role specified");
         return;

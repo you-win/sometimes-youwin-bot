@@ -5,7 +5,7 @@ pub mod discord;
 pub mod twitch;
 pub mod utils;
 
-use std::sync::atomic::AtomicBool;
+use std::{sync::atomic::AtomicBool, time::Duration};
 use tokio::sync::RwLock;
 
 use lazy_static::lazy_static;
@@ -31,11 +31,12 @@ const TWITCH_CHANNEL_NAME: &str = env!("TWITCH_CHANNEL_NAME");
 
 const BOT_PREFIX: &str = "?";
 
-pub static IS_RUNNING: AtomicBool = AtomicBool::new(false);
-
+// pub const TICK_DURATION: f32 = 0.5;
 lazy_static! {
-    pub static ref CONFIG: RwLock<Config> = RwLock::new(Config::new());
+    pub static ref TICK_DURATION: Duration = Duration::from_secs_f32(0.5);
 }
+
+pub static IS_RUNNING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone)]
 pub enum CentralMessage {

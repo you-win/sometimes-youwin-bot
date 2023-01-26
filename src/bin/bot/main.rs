@@ -4,7 +4,7 @@ use log::{debug, error, info};
 use tokio::sync::broadcast;
 
 use sometimes_youwin as yw;
-use yw::{config::Config, discord, twitch, IS_RUNNING};
+use yw::{config::Config, discord, twitch, IS_RUNNING, TICK_DURATION};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
 
     IS_RUNNING.store(true, Ordering::Relaxed);
 
-    let (host_sender, _host_receiver) = broadcast::channel(10);
+    let (host_sender, _) = broadcast::channel(10);
     let (discord_sender, mut discord_receiver) = broadcast::channel(10);
     let (twitch_sender, mut twitch_receiver) = broadcast::channel(10);
 
@@ -48,12 +48,24 @@ async fn main() -> anyhow::Result<()> {
 
     let host_sender_twitch = host_sender.subscribe();
     let twitch_join_handle = tokio::spawn(async move {
-        twitch::run_bot(host_sender_twitch, twitch_sender)
+        // TODO twitch sometimes rejects the bot for some reason
+        // maybe try running in a while loop to continue trying to connect?
+        // twitch::run_bot(host_sender_twitch, twitch_sender)
+        //     .await
+        //     .unwrap();
+        let mut wait_interval = tokio::time::interval(Duration::from_secs_f32(5.0));
+        while twitch::run_bot(host_sender_twitch.resubscribe(), twitch_sender.clone())
             .await
-            .unwrap();
+            .is_err()
+        {
+            wait_interval.tick().await;
+        }
     });
 
+    let mut interval = tokio::time::interval(*TICK_DURATION);
     loop {
+        interval.tick().await;
+
         if !IS_RUNNING.load(Ordering::Relaxed) {
             break;
         }
@@ -63,6 +75,11 @@ async fn main() -> anyhow::Result<()> {
                 discord::BotMessage::Debug(t) => debug!("Discord receiver: {}", t),
                 discord::BotMessage::Error(t) => error!("Discord receiver: {}", t),
                 discord::BotMessage::Ready => info!("Discord receiver ready!"),
+                discord::BotMessage::ConfigUpdated(c) => {
+                    host_sender
+                        .send(yw::CentralMessage::ConfigUpdated(c))
+                        .unwrap();
+                }
                 discord::BotMessage::Shutdown => debug!("Discord shutdown received"),
                 _ => {}
             },
@@ -81,6 +98,12 @@ async fn main() -> anyhow::Result<()> {
 
         match twitch_receiver.try_recv() {
             Ok(v) => match v {
+                twitch::BotMessage::ChannelLive => {
+                    debug!("Channel live!");
+                    if let Err(e) = host_sender.send(yw::CentralMessage::Twitch(v)) {
+                        error!("{:?}", e);
+                    }
+                }
                 _ => {}
             },
             Err(e) => match e {
@@ -102,6 +125,8 @@ async fn main() -> anyhow::Result<()> {
         twitch_join_handle.abort();
     }
 
+    // Discord doesn't have a way to break out of its main loop, so it will return an error when
+    // forcibly aborted.
     {
         assert!(discord_join_handle.await.unwrap_err().is_cancelled());
         assert!(twitch_join_handle.await.is_ok());
