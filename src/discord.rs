@@ -119,6 +119,8 @@ impl EventHandler for Handler {
             self.is_initted
                 .store(true, std::sync::atomic::Ordering::Relaxed);
 
+            // let config = self.config.read().await;
+
             let mut receiver = self.central_receiver.resubscribe();
             let sender = self.sender.clone();
             tokio::spawn(async move {
@@ -127,12 +129,16 @@ impl EventHandler for Handler {
                     interval.tick().await;
                     match receiver.try_recv() {
                         Ok(m) => match m {
-                            // crate::CentralMessage::ConfigUpdated(c) => {
-                            //     config.write().await.from(&c);
-                            // }
-                            crate::CentralMessage::Twitch(_) => {
-                                // TODO stub
-                            }
+                            crate::CentralMessage::Twitch(m) => match m {
+                                crate::twitch::BotMessage::ChannelLive => {
+                                    // ChannelId(config.debug_channel)
+                                    //     .send_message(&ctx.http, |f| f.content(format!("asdf")))
+                                    //     .await
+                                    //     .unwrap();
+                                }
+                                crate::twitch::BotMessage::Debug(m) => {}
+                                _ => {}
+                            },
                             crate::CentralMessage::Shutdown => {
                                 info!("Shutdown received");
                                 sender.send(BotMessage::Shutdown).unwrap();

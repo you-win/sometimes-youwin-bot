@@ -12,6 +12,10 @@ name = "sometimes_youwin"
 name = "bot"
 path = "src/bin/bot/main.rs"
 
+[[bin]]
+name = "live"
+path = "src/bin/live-checker/main.rs"
+
 # [[bin]]
 # name = "authorize"
 # path = "src/bin/authorize/main.rs"

@@ -13,8 +13,10 @@ pub struct Config {
     /// The Discord role ID to use when silencing a user. A value of 0 means there is no role.
     #[serde(default)]
     pub timeout_role_id: u64,
-    #[serde(default = "job_tick_duration_default")]
-    pub job_tick_duration: f32,
+    #[serde(default)]
+    pub stream_notification_channel: u64,
+    #[serde(default)]
+    pub debug_channel: u64,
 }
 
 impl Config {
@@ -23,7 +25,8 @@ impl Config {
             reaction_roles: HashMap::new(),
             max_message_width: 36,
             timeout_role_id: u64::default(),
-            job_tick_duration: job_tick_duration_default(),
+            stream_notification_channel: u64::default(),
+            debug_channel: u64::default(),
         }
     }
 
@@ -31,10 +34,7 @@ impl Config {
         other.reaction_roles.clone_into(&mut self.reaction_roles);
         self.max_message_width = other.max_message_width;
         self.timeout_role_id = other.timeout_role_id;
-        self.job_tick_duration = other.job_tick_duration;
+        self.stream_notification_channel = other.stream_notification_channel;
+        self.debug_channel = other.debug_channel;
     }
-}
-
-fn job_tick_duration_default() -> f32 {
-    0.5
 }

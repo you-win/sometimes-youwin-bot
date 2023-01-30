@@ -48,11 +48,6 @@ async fn main() -> anyhow::Result<()> {
 
     let host_sender_twitch = host_sender.subscribe();
     let twitch_join_handle = tokio::spawn(async move {
-        // TODO twitch sometimes rejects the bot for some reason
-        // maybe try running in a while loop to continue trying to connect?
-        // twitch::run_bot(host_sender_twitch, twitch_sender)
-        //     .await
-        //     .unwrap();
         let mut wait_interval = tokio::time::interval(Duration::from_secs_f32(5.0));
         while twitch::run_bot(host_sender_twitch.resubscribe(), twitch_sender.clone())
             .await
@@ -99,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
         match twitch_receiver.try_recv() {
             Ok(v) => match v {
                 twitch::BotMessage::ChannelLive => {
-                    debug!("Channel live!");
+                    info!("Channel live!");
                     if let Err(e) = host_sender.send(yw::CentralMessage::Twitch(v)) {
                         error!("{:?}", e);
                     }

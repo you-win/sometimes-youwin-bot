@@ -86,21 +86,30 @@ pub async fn run_bot(
 
         // TODO this sucks
         let mut ticks: u16 = 0;
-        const check_live_ticks: u16 = 120;
+        const CHECK_LIVE_TICKS: u16 = 120;
 
         loop {
             interval.tick().await;
 
             ticks += 1;
-            if ticks >= check_live_ticks {
+            if ticks >= CHECK_LIVE_TICKS {
                 ticks = 0;
-                if let Ok(Some(r)) = client
+
+                let req_param = &[twitch_api::types::UserNameRef::from_str(
+                    crate::TWITCH_CHANNEL_NAME,
+                )];
+                if let Ok(response) = client
                     .helix
-                    .get_channel_from_login(crate::TWITCH_CHANNEL_NAME, &user_token)
+                    .req_get(
+                        twitch_api::helix::streams::GetStreamsRequest::user_logins(&req_param[..]),
+                        &user_token,
+                    )
                     .await
                 {
-                    if let Err(e) = sender.send(BotMessage::ChannelLive) {
-                        error!("{:?}", e);
+                    if !response.data.is_empty() {
+                        if let Err(e) = sender.send(BotMessage::ChannelLive) {
+                            error!("{:?}", e);
+                        }
                     }
                 }
             }

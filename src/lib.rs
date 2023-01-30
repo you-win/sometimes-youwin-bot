@@ -6,7 +6,6 @@ pub mod twitch;
 pub mod utils;
 
 use std::{sync::atomic::AtomicBool, time::Duration};
-use tokio::sync::RwLock;
 
 use lazy_static::lazy_static;
 
