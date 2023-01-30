@@ -16,6 +16,8 @@ pub struct Config {
     #[serde(default)]
     pub stream_notification_channel: u64,
     #[serde(default)]
+    pub min_stream_notification_secs: u64,
+    #[serde(default)]
     pub debug_channel: u64,
 }
 
@@ -26,6 +28,7 @@ impl Config {
             max_message_width: 36,
             timeout_role_id: u64::default(),
             stream_notification_channel: u64::default(),
+            min_stream_notification_secs: 21600,
             debug_channel: u64::default(),
         }
     }
@@ -35,6 +38,7 @@ impl Config {
         self.max_message_width = other.max_message_width;
         self.timeout_role_id = other.timeout_role_id;
         self.stream_notification_channel = other.stream_notification_channel;
+        self.min_stream_notification_secs = other.min_stream_notification_secs;
         self.debug_channel = other.debug_channel;
     }
 }

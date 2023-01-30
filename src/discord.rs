@@ -99,6 +99,7 @@ impl EventHandler for Handler {
 
                     match toml::from_str(content) {
                         Ok(c) => {
+                            self.config.write().await.from(&c);
                             self.sender.send(BotMessage::ConfigUpdated(c)).unwrap();
                             // crate::CONFIG.write().await.from(&c);
                         }
@@ -119,43 +120,72 @@ impl EventHandler for Handler {
             self.is_initted
                 .store(true, std::sync::atomic::Ordering::Relaxed);
 
-            // let config = self.config.read().await;
+            let client = ctx.http.clone();
+            let config = self.config.read().await.clone();
 
             let mut receiver = self.central_receiver.resubscribe();
             let sender = self.sender.clone();
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(*crate::TICK_DURATION);
-                loop {
-                    interval.tick().await;
-                    match receiver.try_recv() {
-                        Ok(m) => match m {
-                            crate::CentralMessage::Twitch(m) => match m {
-                                crate::twitch::BotMessage::ChannelLive => {
-                                    // ChannelId(config.debug_channel)
-                                    //     .send_message(&ctx.http, |f| f.content(format!("asdf")))
-                                    //     .await
-                                    //     .unwrap();
+            tokio::spawn({
+                async move {
+                    let mut interval = tokio::time::interval(*crate::TICK_DURATION);
+                    loop {
+                        interval.tick().await;
+                        match receiver.try_recv() {
+                            Ok(m) => match m {
+                                crate::CentralMessage::Twitch(m) => match m {
+                                    crate::twitch::BotMessage::ChannelLive => {
+                                        let notification_channel =
+                                            ChannelId(config.stream_notification_channel);
+
+                                        match notification_channel
+                                            .messages(&client, |m| m.limit(1))
+                                            .await
+                                        {
+                                            Ok(mut v) => {
+                                                if let Some(m) = v.pop() {
+                                                    if m.timestamp
+                                                        .signed_duration_since(chrono::Local::now())
+                                                        > chrono::Duration::seconds(
+                                                            config.min_stream_notification_secs
+                                                                as i64,
+                                                        )
+                                                    {
+                                                        info!("We're live");
+                                                        // notification_channel
+                                                        //     .send_message(&client, |f| {
+                                                        //         f.content(format!("asdf"))
+                                                        //     })
+                                                        //     .await
+                                                        //     .unwrap();
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error!("{e}");
+                                            }
+                                        }
+                                    }
+                                    crate::twitch::BotMessage::Debug(m) => {}
+                                    _ => {}
+                                },
+                                crate::CentralMessage::Shutdown => {
+                                    info!("Shutdown received");
+                                    sender.send(BotMessage::Shutdown).unwrap();
+                                    break;
                                 }
-                                crate::twitch::BotMessage::Debug(m) => {}
                                 _ => {}
                             },
-                            crate::CentralMessage::Shutdown => {
-                                info!("Shutdown received");
-                                sender.send(BotMessage::Shutdown).unwrap();
-                                break;
-                            }
-                            _ => {}
-                        },
-                        Err(e) => match e {
-                            tokio::sync::broadcast::error::TryRecvError::Closed => {
-                                error!("Channel closed");
-                                break;
-                            }
-                            tokio::sync::broadcast::error::TryRecvError::Lagged(n) => {
-                                debug!("Channel lagged by {} messages", n);
-                            }
-                            _ => {}
-                        },
+                            Err(e) => match e {
+                                tokio::sync::broadcast::error::TryRecvError::Closed => {
+                                    error!("Channel closed");
+                                    break;
+                                }
+                                tokio::sync::broadcast::error::TryRecvError::Lagged(n) => {
+                                    debug!("Channel lagged by {} messages", n);
+                                }
+                                _ => {}
+                            },
+                        }
                     }
                 }
             });
