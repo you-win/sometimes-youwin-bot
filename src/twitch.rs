@@ -25,7 +25,7 @@ pub enum BotMessage {
     Debug(String),
 
     Ready,
-    ChannelLive,
+    ChannelLive { channel: String, title: String },
     Shutdown,
 }
 
@@ -107,7 +107,11 @@ pub async fn run_bot(
                     .await
                 {
                     if !response.data.is_empty() {
-                        if let Err(e) = sender.send(BotMessage::ChannelLive) {
+                        let data = response.data.first().unwrap();
+                        if let Err(e) = sender.send(BotMessage::ChannelLive {
+                            channel: data.user_name.to_string(),
+                            title: data.title.to_string(),
+                        }) {
                             error!("{:?}", e);
                         }
                     }

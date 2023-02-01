@@ -133,9 +133,10 @@ impl EventHandler for Handler {
                         match receiver.try_recv() {
                             Ok(m) => match m {
                                 crate::CentralMessage::Twitch(m) => match m {
-                                    crate::twitch::BotMessage::ChannelLive => {
-                                        let notification_channel =
-                                            ChannelId(config.stream_notification_channel);
+                                    crate::twitch::BotMessage::ChannelLive { channel, title } => {
+                                        // let notification_channel =
+                                        //     ChannelId(config.stream_notification_channel);
+                                        let notification_channel = ChannelId(config.debug_channel);
 
                                         match notification_channel
                                             .messages(&client, |m| m.limit(1))
@@ -150,13 +151,11 @@ impl EventHandler for Handler {
                                                                 as i64,
                                                         )
                                                     {
-                                                        info!("We're live");
-                                                        // notification_channel
-                                                        //     .send_message(&client, |f| {
-                                                        //         f.content(format!("asdf"))
-                                                        //     })
-                                                        //     .await
-                                                        //     .unwrap();
+                                                        if let Err(e) = notification_channel.send_message(&client, |f| {
+                                                            f.content(format!("<@&901528644382519317> {} is live streaming {}", channel, title ))
+                                                        }).await {
+                                                            error!("Failed sending notification because of {e}");
+                                                        }
                                                     }
                                                 }
                                             }

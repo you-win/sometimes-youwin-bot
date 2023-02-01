@@ -93,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
 
         match twitch_receiver.try_recv() {
             Ok(v) => match v {
-                twitch::BotMessage::ChannelLive => {
+                twitch::BotMessage::ChannelLive { .. } => {
                     info!("Channel live!");
                     if let Err(e) = host_sender.send(yw::CentralMessage::Twitch(v)) {
                         error!("{:?}", e);
