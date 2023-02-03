@@ -1,5 +1,4 @@
 const BUILD_NAME: &str = "Genesis";
-const LOG_LEVEL: &str = "trace";
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -19,8 +18,6 @@ fn build_info() {
         .map(|x| String::from(String::from_utf8_lossy(&x.stdout)))
         .unwrap();
     println!("cargo:rustc-env=GIT_REV={}", sha);
-
-    println!("cargo:rustc-env=LOG_LEVEL={}", LOG_LEVEL);
 }
 
 fn discord_info() {
@@ -41,6 +38,7 @@ fn twitch_info() {
         "TWITCH_CLIENT_SECRET",
         "TWITCH_REFRESH_TOKEN",
         "TWITCH_CHANNEL_NAME",
+        "TWITCH_BOT_NAME",
     ]);
 }
 

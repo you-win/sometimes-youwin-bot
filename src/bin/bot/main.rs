@@ -1,7 +1,13 @@
-use std::{sync::atomic::Ordering, time::Duration};
+use std::{
+    sync::{atomic::Ordering, Arc},
+    time::Duration,
+};
 
 use log::{debug, error, info};
-use tokio::sync::broadcast;
+use tokio::{
+    sync::{broadcast, RwLock},
+    task::JoinHandle,
+};
 
 use sometimes_youwin as yw;
 use yw::{config::Config, discord, twitch, IS_RUNNING, TICK_DURATION};
@@ -11,17 +17,12 @@ async fn main() -> anyhow::Result<()> {
     println!("Starting build {} with rev {}", yw::BUILD_NAME, yw::GIT_REV);
 
     env_logger::Builder::new()
-        .parse_filters(
-            format!(
-                "warn,bot={},sometimes_youwin={}",
-                yw::LOG_LEVEL,
-                yw::LOG_LEVEL
-            )
-            .as_str(),
-        )
+        .parse_filters("warn,bot=debug,sometimes_youwin=debug")
         .init();
 
     IS_RUNNING.store(true, Ordering::Relaxed);
+
+    let config = Arc::new(RwLock::new(Config::new()));
 
     let (host_sender, _) = broadcast::channel(10);
     let (discord_sender, mut discord_receiver) = broadcast::channel(10);
@@ -39,23 +40,15 @@ async fn main() -> anyhow::Result<()> {
         })?;
     }
 
+    let discord_config = config.clone();
     let host_sender_discord = host_sender.subscribe();
     let discord_join_handle = tokio::spawn(async move {
-        discord::run_bot(host_sender_discord, discord_sender)
+        discord::run_bot(discord_config.clone(), host_sender_discord, discord_sender)
             .await
             .unwrap();
     });
 
-    let host_sender_twitch = host_sender.subscribe();
-    let twitch_join_handle = tokio::spawn(async move {
-        let mut wait_interval = tokio::time::interval(Duration::from_secs_f32(5.0));
-        while twitch::run_bot(host_sender_twitch.resubscribe(), twitch_sender.clone())
-            .await
-            .is_err()
-        {
-            wait_interval.tick().await;
-        }
-    });
+    let mut twitch_join_handle: Option<JoinHandle<()>> = None;
 
     let mut interval = tokio::time::interval(*TICK_DURATION);
     loop {
@@ -69,11 +62,27 @@ async fn main() -> anyhow::Result<()> {
             Ok(v) => match v {
                 discord::BotMessage::Debug(t) => debug!("Discord receiver: {}", t),
                 discord::BotMessage::Error(t) => error!("Discord receiver: {}", t),
-                discord::BotMessage::Ready => info!("Discord receiver ready!"),
+                discord::BotMessage::Ready => {
+                    info!("Discord receiver ready!");
+                    let host_sender_twitch = host_sender.subscribe();
+                    let twitch_sender = twitch_sender.clone();
+                    let config = config.clone();
+                    twitch_join_handle = Some(tokio::spawn(async move {
+                        let mut wait_interval = tokio::time::interval(Duration::from_secs_f32(5.0));
+                        while twitch::run_bot(
+                            config.clone(),
+                            host_sender_twitch.resubscribe(),
+                            twitch_sender.clone(),
+                        )
+                        .await
+                        .is_err()
+                        {
+                            wait_interval.tick().await;
+                        }
+                    }));
+                }
                 discord::BotMessage::ConfigUpdated(c) => {
-                    host_sender
-                        .send(yw::CentralMessage::ConfigUpdated(c))
-                        .unwrap();
+                    // config.write().await.from(&c);
                 }
                 discord::BotMessage::Shutdown => debug!("Discord shutdown received"),
                 _ => {}
@@ -115,15 +124,15 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    {
-        discord_join_handle.abort();
-        twitch_join_handle.abort();
-    }
-
     // Discord doesn't have a way to break out of its main loop, so it will return an error when
     // forcibly aborted.
-    {
-        assert!(discord_join_handle.await.unwrap_err().is_cancelled());
+    discord_join_handle.abort();
+    assert!(discord_join_handle.await.unwrap_err().is_cancelled());
+
+    if twitch_join_handle.is_some() {
+        let twitch_join_handle = twitch_join_handle.unwrap();
+
+        twitch_join_handle.abort();
         assert!(twitch_join_handle.await.is_ok());
     }
 

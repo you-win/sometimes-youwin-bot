@@ -56,12 +56,13 @@ struct Handler {
 
 impl Handler {
     pub fn new(
+        config: Arc<RwLock<crate::Config>>,
         central_receiver: Receiver<crate::CentralMessage>,
         discord_sender: Sender<BotMessage>,
     ) -> Self {
         Self {
             is_initted: Arc::new(AtomicBool::new(false)),
-            central_receiver: central_receiver,
+            central_receiver,
             sender: discord_sender,
 
             bot_id: crate::DISCORD_BOT_ID.parse().unwrap(),
@@ -69,7 +70,7 @@ impl Handler {
 
             guild_id: GuildId(crate::DISCORD_GUILD_ID.parse().unwrap()),
 
-            config: Arc::new(RwLock::new(crate::Config::new())),
+            config,
 
             antispam: Arc::new(RwLock::new(antispam::Antispam::new())),
             reaction_roles: Arc::new(RwLock::new(HashMap::new())),
@@ -79,7 +80,7 @@ impl Handler {
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn ready(&self, ctx: Context, ready: Ready) {
+    async fn ready(&self, ctx: Context, _ready: Ready) {
         info!("Discord bot connected!");
 
         // TODO can directly access the channel instead of iterating through all channels
@@ -99,9 +100,9 @@ impl EventHandler for Handler {
 
                     match toml::from_str(content) {
                         Ok(c) => {
-                            self.config.write().await.from(&c);
-                            self.sender.send(BotMessage::ConfigUpdated(c)).unwrap();
-                            // crate::CONFIG.write().await.from(&c);
+                            // TODO this sucks, need to refactor so that only the main thread writes to the config
+                            // self.sender.send(BotMessage::ConfigUpdated(c)).unwrap();
+                            self.config.write().await.from(&c)
                         }
                         Err(e) => {
                             self.sender.send(BotMessage::Error(e.to_string())).unwrap();
@@ -121,7 +122,7 @@ impl EventHandler for Handler {
                 .store(true, std::sync::atomic::Ordering::Relaxed);
 
             let client = ctx.http.clone();
-            let config = self.config.read().await.clone();
+            let config = self.config.clone();
 
             let mut receiver = self.central_receiver.resubscribe();
             let sender = self.sender.clone();
@@ -134,9 +135,11 @@ impl EventHandler for Handler {
                             Ok(m) => match m {
                                 crate::CentralMessage::Twitch(m) => match m {
                                     crate::twitch::BotMessage::ChannelLive { channel, title } => {
+                                        let notification_channel = ChannelId(
+                                            config.read().await.stream_notification_channel,
+                                        );
                                         // let notification_channel =
-                                        //     ChannelId(config.stream_notification_channel);
-                                        let notification_channel = ChannelId(config.debug_channel);
+                                        //     ChannelId(config.read().await.debug_channel);
 
                                         match notification_channel
                                             .messages(&client, |m| m.limit(1))
@@ -144,12 +147,13 @@ impl EventHandler for Handler {
                                         {
                                             Ok(mut v) => {
                                                 if let Some(m) = v.pop() {
-                                                    if m.timestamp
-                                                        .signed_duration_since(chrono::Local::now())
-                                                        > chrono::Duration::seconds(
-                                                            config.min_stream_notification_secs
-                                                                as i64,
-                                                        )
+                                                    debug!("{:?}", m);
+                                                    if chrono::Local::now()
+                                                        .signed_duration_since(*m.timestamp)
+                                                        > chrono::Duration::seconds(10)
+                                                    // if m.timestamp
+                                                    //     .signed_duration_since(chrono::Local::now())
+                                                    //     > chrono::Duration::seconds(10)
                                                     {
                                                         if let Err(e) = notification_channel.send_message(&client, |f| {
                                                             f.content(format!("<@&901528644382519317> {} is live streaming {}", channel, title ))
@@ -167,9 +171,9 @@ impl EventHandler for Handler {
                                     crate::twitch::BotMessage::Debug(m) => {}
                                     _ => {}
                                 },
+                                crate::CentralMessage::ConfigUpdated(_) => {}
                                 crate::CentralMessage::Shutdown => {
                                     info!("Shutdown received");
-                                    sender.send(BotMessage::Shutdown).unwrap();
                                     break;
                                 }
                                 _ => {}
@@ -474,6 +478,7 @@ pub enum BotMessage {
 }
 
 pub async fn run_bot(
+    config: Arc<RwLock<crate::Config>>,
     central_receiver: Receiver<crate::CentralMessage>,
     discord_sender: Sender<BotMessage>,
 ) -> anyhow::Result<()> {
@@ -492,7 +497,7 @@ pub async fn run_bot(
         | GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::GUILD_MESSAGE_REACTIONS
         | GatewayIntents::MESSAGE_CONTENT;
-    let handler = Handler::new(central_receiver, discord_sender);
+    let handler = Handler::new(config, central_receiver, discord_sender);
 
     let mut client = Client::builder(token, intents)
         .event_handler(handler)
