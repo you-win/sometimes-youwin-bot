@@ -25,10 +25,8 @@ fn discord_info() {
         "DISCORD_TOKEN",
         "DISCORD_GUILD_ID",
         "DISCORD_BOT_DATA_CHANNEL_ID",
-        "DISCORD_BOT_CONTROLLER_CHANNEL_ID",
         "DISCORD_BOT_ID",
         "DISCORD_ADMIN_ID",
-        "DISCORD_ROLES_CHANNEL_ID",
     ]);
 }
 

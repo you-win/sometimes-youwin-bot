@@ -1,14 +1,8 @@
-use std::{
-    collections::HashMap,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, time::Duration};
 
-use log::debug;
-use serenity::model::user::User;
+use tokio::time::Instant;
 
-/// The default spam time to use if there is no configured spam time.
-const DEFAULT_SPAM_TIME: u64 = 1;
-
+const DEFAULT_SPAM_TIME: f32 = 1.0;
 const MAX_STRIKES: u8 = 3;
 
 struct History {
@@ -43,25 +37,29 @@ impl History {
     }
 }
 
-/// Checks if a message from a user is spam based on time since the last message.
-#[derive(Default)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub enum Chatter {
+    Twitch(String),
+    Discord(u64),
+}
+
 pub struct Antispam {
     min_non_spam_time: Duration,
-    chatter_history: HashMap<u64, History>,
+    chatter_history: HashMap<Chatter, History>,
 }
 
 impl Antispam {
     /// Create a new instance of `Antispam`.
     pub fn new() -> Self {
         Self {
-            min_non_spam_time: Duration::from_secs(DEFAULT_SPAM_TIME),
+            min_non_spam_time: Duration::from_secs_f32(DEFAULT_SPAM_TIME),
             chatter_history: HashMap::new(),
         }
     }
 
     /// Check if the given `user` is spamming.
-    pub fn is_spam(&mut self, user_id: &u64) -> bool {
-        match self.chatter_history.get_mut(user_id) {
+    pub fn is_spam(&mut self, user_id: Chatter) -> bool {
+        match self.chatter_history.get_mut(&user_id) {
             Some(history) => {
                 let r = if history.elapsed() < self.min_non_spam_time {
                     history.add_strike();
@@ -76,13 +74,13 @@ impl Antispam {
                 r
             }
             None => {
-                let _ = self.chatter_history.insert(*user_id, History::new());
+                let _ = self.chatter_history.insert(user_id, History::new());
                 false
             }
         }
     }
 
-    pub fn should_timeout(&self, user_id: &u64) -> bool {
+    pub fn should_timeout(&self, user_id: &Chatter) -> bool {
         match self.chatter_history.get(user_id) {
             Some(h) => h.strikes > MAX_STRIKES,
             None => false,
