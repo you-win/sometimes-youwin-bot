@@ -246,8 +246,7 @@ pub fn parse(input: impl Display, info: AdditionalInfo, config: &Config) -> Comm
             }
 
             let script = script.join(" ");
-            if !script.starts_with("```rhai")
-                || !script.starts_with("```rust")
+            if (!script.starts_with("```rhai") && !script.starts_with("```rust"))
                 || !script.ends_with("```")
             {
                 return CommandOutput::from((
@@ -258,10 +257,8 @@ pub fn parse(input: impl Display, info: AdditionalInfo, config: &Config) -> Comm
 
             match scripting::execute(
                 script
-                    .strip_prefix("```rhai")
-                    .unwrap_or_default()
-                    .strip_prefix("```rust")
-                    .unwrap_or_default()
+                    .replace("```rhai", "")
+                    .replace("```rust", "")
                     .strip_suffix("```")
                     .unwrap_or_default(),
             ) {
