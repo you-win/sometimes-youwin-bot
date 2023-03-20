@@ -275,6 +275,7 @@ dependencies = [
  "log",
  "model",
  "rand",
+ "scripting",
  "strum",
  "thiserror",
 ]

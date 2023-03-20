@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 model = { path = "../model" }
+scripting = { path = "../scripting" }
 
 log = { workspace = true }
 thiserror = { workspace = true }

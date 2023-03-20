@@ -38,7 +38,13 @@ pub enum Commands {
     /// An ad hoc command that only returns a String value.
     #[command(aliases = ["adhoc"])]
     AdHoc {
+        /// The ad-hoc command to run.
         text: String,
+    },
+    /// Run a Rhai script in safe mode.
+    Rhai {
+        /// The script. Must be properly formatted using rhai <script> and triple backticks.
+        script: Vec<String>,
     },
     Admin(Admin),
 }
@@ -46,13 +52,14 @@ pub enum Commands {
 impl Display for Commands {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Commands::Ping => write!(f, "ping"),
-            Commands::Whoami => write!(f, "whoami"),
-            Commands::HighFive => write!(f, "high-five"),
-            Commands::FerrisSay { text } => write!(f, "ferris-say {}", text.join(" ")),
-            Commands::Roll { sides } => write!(f, "roll {}", sides),
-            Commands::AdHoc { text } => write!(f, "ad-hoc {}", text),
-            Commands::Admin(admin) => write!(f, "admin {}", &admin.command),
+            Self::Ping => write!(f, "ping"),
+            Self::Whoami => write!(f, "whoami"),
+            Self::HighFive => write!(f, "high-five"),
+            Self::FerrisSay { text } => write!(f, "ferris-say {}", text.join(" ")),
+            Self::Roll { sides } => write!(f, "roll {}", sides),
+            Self::AdHoc { text } => write!(f, "ad-hoc {}", text),
+            Self::Rhai { script } => write!(f, "rhai {}", script.join(" ")),
+            Self::Admin(admin) => write!(f, "admin {}", &admin.command),
         }
     }
 }
@@ -228,6 +235,33 @@ pub fn parse(input: impl Display, info: AdditionalInfo, config: &Config) -> Comm
                 ad_hoc_val
             } else {
                 Some(show_help())
+            }
+        }
+        Commands::Rhai { ref script } => {
+            if matches!(info, AdditionalInfo::Twitch { .. }) {
+                return CommandOutput::from((
+                    args.command,
+                    Some("This does not work in Twitch chat!".to_string()),
+                ));
+            }
+
+            let script = script.join(" ");
+            if !script.starts_with("```rhai") || !script.ends_with("```") {
+                return CommandOutput::from((
+                    args.command,
+                    Some("Improperly formatted script, declining to run.".to_string()),
+                ));
+            }
+
+            match scripting::execute(
+                script
+                    .strip_prefix("```rhai")
+                    .unwrap_or_default()
+                    .strip_suffix("```")
+                    .unwrap_or_default(),
+            ) {
+                Ok(v) => Some(v),
+                Err(e) => Some(e.to_string()),
             }
         }
         Commands::Admin(ref admin) => match admin.command {
