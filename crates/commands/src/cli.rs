@@ -246,7 +246,10 @@ pub fn parse(input: impl Display, info: AdditionalInfo, config: &Config) -> Comm
             }
 
             let script = script.join(" ");
-            if !script.starts_with("```rhai") || !script.ends_with("```") {
+            if !script.starts_with("```rhai")
+                || !script.starts_with("```rust")
+                || !script.ends_with("```")
+            {
                 return CommandOutput::from((
                     args.command,
                     Some("Improperly formatted script, declining to run.".to_string()),
@@ -257,10 +260,12 @@ pub fn parse(input: impl Display, info: AdditionalInfo, config: &Config) -> Comm
                 script
                     .strip_prefix("```rhai")
                     .unwrap_or_default()
+                    .strip_prefix("```rust")
+                    .unwrap_or_default()
                     .strip_suffix("```")
                     .unwrap_or_default(),
             ) {
-                Ok(v) => Some(v),
+                Ok(v) => Some(format!("```{v}```")),
                 Err(e) => Some(e.to_string()),
             }
         }
