@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap::{error::ErrorKind, Args, CommandFactory, Parser, Subcommand};
 use model::config::Config;
 use strum::{EnumIter, IntoEnumIterator};
 
@@ -96,7 +96,10 @@ impl Display for AdminCommands {
 
 #[derive(Debug, Clone)]
 pub enum CommandOutput {
-    Error(String),
+    Error {
+        message: String,
+        is_help: bool,
+    },
     Command {
         value: Option<String>,
         command: Commands,
@@ -112,7 +115,7 @@ impl CommandOutput {
         match self {
             Self::Command { value, .. } => value.clone(),
             Self::AdminCommand { value, .. } => value.clone(),
-            Self::Error(s) => Some(s.clone()),
+            Self::Error { message, .. } => Some(message.clone()),
         }
     }
 
@@ -120,7 +123,7 @@ impl CommandOutput {
         match self {
             Self::Command { command, .. } => command.to_string(),
             Self::AdminCommand { command, .. } => command.to_string(),
-            Self::Error(s) => s.to_string(),
+            Self::Error { message, .. } => message.to_string(),
         }
     }
 }
@@ -179,7 +182,17 @@ pub fn parse(input: impl Display, info: AdditionalInfo, config: &Config) -> Comm
                 };
             }
 
-            return CommandOutput::Error(e.render().to_string());
+            let mut is_help = false;
+            match e.kind() {
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
+                    is_help = true;
+                }
+                _ => {}
+            }
+            return CommandOutput::Error {
+                message: e.render().to_string(),
+                is_help,
+            };
         }
     };
 

@@ -2,12 +2,15 @@ use std::{collections::HashMap, time::Duration};
 
 use tokio::time::Instant;
 
-const DEFAULT_SPAM_TIME: f32 = 1.0;
+const DEFAULT_SPAM_TIME: f32 = 0.75;
 const MAX_STRIKES: u8 = 3;
+const SILENT_DELETE_AMOUNT: u8 = 4;
 
 struct History {
     last_timestamp: Instant,
     strikes: u8,
+
+    silent_delete: bool,
 }
 
 impl History {
@@ -16,6 +19,7 @@ impl History {
         Self {
             last_timestamp: Instant::now(),
             strikes: 0,
+            silent_delete: false,
         }
     }
 
@@ -30,22 +34,20 @@ impl History {
 
     fn add_strike(&mut self) {
         self.strikes += 1;
+        if self.strikes > SILENT_DELETE_AMOUNT {
+            self.silent_delete = true;
+        }
     }
 
     fn reset_strikes(&mut self) {
         self.strikes = 0;
+        self.silent_delete = false;
     }
-}
-
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub enum Chatter {
-    Twitch(String),
-    Discord(u64),
 }
 
 pub struct Antispam {
     min_non_spam_time: Duration,
-    chatter_history: HashMap<Chatter, History>,
+    chatter_history: HashMap<u64, History>,
 }
 
 impl Antispam {
@@ -58,7 +60,7 @@ impl Antispam {
     }
 
     /// Check if the given `user` is spamming.
-    pub fn is_spam(&mut self, user_id: Chatter) -> bool {
+    pub fn is_spam(&mut self, user_id: &u64) -> bool {
         match self.chatter_history.get_mut(&user_id) {
             Some(history) => {
                 let r = if history.elapsed() < self.min_non_spam_time {
@@ -74,16 +76,24 @@ impl Antispam {
                 r
             }
             None => {
-                let _ = self.chatter_history.insert(user_id, History::new());
+                let _ = self.chatter_history.insert(*user_id, History::new());
                 false
             }
         }
     }
 
-    pub fn should_timeout(&self, user_id: &Chatter) -> bool {
+    pub fn too_many_strikes(&self, user_id: &u64) -> bool {
         match self.chatter_history.get(user_id) {
             Some(h) => h.strikes > MAX_STRIKES,
             None => false,
+        }
+    }
+
+    pub fn should_silent_delete(&self, user_id: &u64) -> bool {
+        if let Some(h) = self.chatter_history.get(user_id) {
+            h.silent_delete
+        } else {
+            false
         }
     }
 

@@ -73,6 +73,8 @@ impl<'a> Bot<'a> {
     }
 
     pub async fn check_channel_live(&self) -> anyhow::Result<()> {
+        debug!("Checking if channel is live");
+
         match self
             .api_client
             .helix
@@ -191,7 +193,7 @@ impl<'a> Bot<'a> {
             CommandOutput::Command { value, .. } | CommandOutput::AdminCommand { value, .. } => {
                 value.unwrap_or("No output!".into())
             }
-            CommandOutput::Error(_) => {
+            CommandOutput::Error { .. } => {
                 let mut cli_commands = commands::Commands::commands();
                 cli_commands.append(&mut config.ad_hoc_commands());
 

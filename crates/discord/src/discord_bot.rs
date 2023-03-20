@@ -74,36 +74,13 @@ impl EventHandler for Bot {
         }
 
         {
-            debug!("Reading Discord config");
+            debug!("Reading Discord config from Ready");
 
-            let data_channel = ChannelId(self.creds.data_channel);
+            if let Err(e) = process_config(&ctx, &self.sender, self.creds.data_channel).await {
+                error!("{e}");
+            }
 
-            let _ = data_channel
-                .messages(&ctx.http, |x| x)
-                .await
-                .expect("Unable to read bot data.")
-                .into_iter()
-                .for_each(|m| {
-                    let content = m
-                        .content
-                        .trim()
-                        .trim_start_matches("`")
-                        .trim_start_matches("TOML")
-                        .trim_end_matches("`")
-                        .trim();
-
-                    match toml::from_str::<Config>(content) {
-                        Ok(c) => {
-                            if let Err(e) = self.sender.send(DiscordMessage::ConfigUpdated(c)) {
-                                error!("{e}");
-                            }
-                            debug!("Sent ConfigUpdated message!");
-                        }
-                        Err(e) => error!("{e}"),
-                    }
-                });
-
-            debug!("Finished reading Discord config");
+            debug!("Finished reading Discord config from Ready");
         }
 
         if let Err(e) = self.sender.send(DiscordMessage::Ready) {
@@ -115,10 +92,28 @@ impl EventHandler for Bot {
 
     async fn message(&self, ctx: Context, message: Message) {
         let author_id = message.author.id.as_u64();
-
         if author_id == &self.creds.bot_id {
             return;
         }
+
+        let mut antispam = self.antispam.write().await;
+        if antispam.is_spam(author_id) {
+            debug!("Spammer detected: {}", &message.author.name);
+
+            if antispam.too_many_strikes(author_id) {
+                debug!("Too many strikes for {}", &message.author.name);
+
+                if !antispam.should_silent_delete(author_id) {
+                    if let Err(e) = message.reply_mention(&ctx, "Please do not spam! >:(").await {
+                        error!("{e}");
+                    }
+                }
+                if let Err(e) = message.delete(&ctx).await {
+                    error!("{e}");
+                }
+            }
+        }
+
         if !&message.content.starts_with(self.creds.bot_prefix()) {
             return;
         }
@@ -142,23 +137,79 @@ impl EventHandler for Bot {
                 }
             }
             CommandOutput::AdminCommand { value, command } => {}
-            CommandOutput::Error(e) => {
-                reply_mention(
-                    &ctx,
-                    &message,
-                    &format!(
-                        "{e}\nAd-hoc commands: {}",
+            CommandOutput::Error {
+                message: error_text,
+                is_help,
+            } => {
+                let text = if is_help {
+                    format!(
+                        "```{error_text}\nAd-hoc commands:\n  {}```",
                         config.ad_hoc_commands().join(", ")
-                    ),
-                )
-                .await
+                    )
+                } else {
+                    format!("```{error_text}```")
+                };
+                reply_mention(&ctx, &message, &text).await
             }
         }
     }
+
+    async fn message_update(
+        &self,
+        ctx: Context,
+        _old_if_available: Option<Message>,
+        new: Option<Message>,
+        new_data: MessageUpdateEvent,
+    ) {
+        if new.map_or_else(|| new_data.channel_id.0, |v| v.channel_id.0) != self.creds.data_channel
+        {
+            return;
+        }
+
+        debug!("Updating config from Message Update");
+
+        if let Err(e) = process_config(&ctx, &self.sender, self.creds.data_channel).await {
+            error!("{e}");
+        }
+
+        debug!("Finished updating config from Message Update");
+    }
+}
+
+async fn process_config(
+    ctx: &Context,
+    sender: &Sender<DiscordMessage>,
+    data_channel_id: u64,
+) -> anyhow::Result<()> {
+    ChannelId(data_channel_id)
+        .messages(ctx, |x| x)
+        .await?
+        .into_iter()
+        .for_each(|m| {
+            let content = m
+                .content
+                .trim()
+                .trim_start_matches("`")
+                .trim_start_matches("TOML")
+                .trim_end_matches("`")
+                .trim();
+
+            match toml::from_str::<Config>(content) {
+                Ok(c) => {
+                    if let Err(e) = sender.send(DiscordMessage::ConfigUpdated(c)) {
+                        error!("{e}");
+                    }
+                    debug!("Sent ConfigUpdated message!");
+                }
+                Err(e) => error!("{e}"),
+            }
+        });
+
+    Ok(())
 }
 
 async fn reply_mention(cache_http: impl CacheHttp, message: &Message, text: &String) {
-    if let Err(e) = message.reply_mention(cache_http, text).await {
+    if let Err(e) = message.reply(cache_http, text).await {
         error!("{e}");
     }
 }
