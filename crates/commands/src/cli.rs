@@ -1,11 +1,13 @@
 use std::fmt::Display;
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
+use model::config::Config;
+use strum::{EnumIter, IntoEnumIterator};
 
 use super::commands;
 
 #[derive(Debug, Parser)]
-#[command(name = "sometimes-youwin-bot")]
+#[command(name = "bot?")]
 #[command(about = "A multibot made by youwin.")]
 #[command(propagate_version = true)]
 pub struct Cli {
@@ -13,7 +15,7 @@ pub struct Cli {
     command: Commands,
 }
 
-#[derive(Debug, Clone, Subcommand)]
+#[derive(Debug, Clone, Subcommand, EnumIter)]
 pub enum Commands {
     /// Ping the bot.
     Ping,
@@ -25,13 +27,18 @@ pub enum Commands {
     #[command(aliases = ["cowsay", "ferrissay"])]
     FerrisSay {
         /// The text to say.
-        #[arg(num_args = 0..)]
-        text: String,
+        #[arg(num_args = 1..)]
+        text: Vec<String>,
     },
     /// Generate a random number from 1 - input.
     Roll {
         /// The max number that can be rolled.
-        sides: u64,
+        sides: String,
+    },
+    /// An ad hoc command that only returns a String value.
+    #[command(aliases = ["adhoc"])]
+    AdHoc {
+        text: String,
     },
     Admin(Admin),
 }
@@ -42,10 +49,19 @@ impl Display for Commands {
             Commands::Ping => write!(f, "ping"),
             Commands::Whoami => write!(f, "whoami"),
             Commands::HighFive => write!(f, "high-five"),
-            Commands::FerrisSay { text } => write!(f, "ferris-say {}", text),
+            Commands::FerrisSay { text } => write!(f, "ferris-say {}", text.join(" ")),
             Commands::Roll { sides } => write!(f, "roll {}", sides),
+            Commands::AdHoc { text } => write!(f, "ad-hoc {}", text),
             Commands::Admin(admin) => write!(f, "admin {}", &admin.command),
         }
+    }
+}
+
+impl Commands {
+    pub fn commands() -> Vec<String> {
+        Commands::iter()
+            .map(|x| format!("{:?}", x))
+            .collect::<Vec<String>>()
     }
 }
 
@@ -55,14 +71,24 @@ pub struct Admin {
     command: AdminCommands,
 }
 
-#[derive(Debug, Clone, Subcommand)]
+impl Default for Admin {
+    fn default() -> Self {
+        Self {
+            command: AdminCommands::Test,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Subcommand, EnumIter)]
 pub enum AdminCommands {
+    Test,
     ReloadConfig,
 }
 
 impl Display for AdminCommands {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Test => write!(f, "test"),
             Self::ReloadConfig => write!(f, "reload-config"),
         }
     }
@@ -131,10 +157,30 @@ pub enum AdditionalInfo {
     },
 }
 
-pub fn parse(text: impl ToString, info: AdditionalInfo) -> CommandOutput {
-    let args = match Cli::try_parse_from(text.to_string().split(' ')) {
+pub fn parse(input: impl Display, info: AdditionalInfo, config: &Config) -> CommandOutput {
+    let args = match Cli::try_parse_from(format!("{input}",).split(' ')) {
         Ok(args) => args,
-        Err(e) => return CommandOutput::Error(e.render().to_string()),
+        Err(e) => {
+            let ad_hoc_val = config.ad_hoc_command(
+                &input
+                    .to_string()
+                    .split_once(" ")
+                    .unwrap_or_default()
+                    .1
+                    .to_string(),
+            );
+
+            if ad_hoc_val.is_some() {
+                return CommandOutput::Command {
+                    value: ad_hoc_val,
+                    command: Commands::AdHoc {
+                        text: input.to_string(),
+                    },
+                };
+            }
+
+            return CommandOutput::Error(e.render().to_string());
+        }
     };
 
     let output = match args.command {
@@ -152,8 +198,25 @@ pub fn parse(text: impl ToString, info: AdditionalInfo) -> CommandOutput {
             }
         }
         Commands::HighFive => Some(commands::high_five()),
-        Commands::FerrisSay { ref text } => Some(commands::ferris_say(text)),
-        Commands::Roll { sides } => Some(commands::roll(sides).to_string()),
+        Commands::FerrisSay { ref text } => {
+            if let AdditionalInfo::Discord { .. } = info {
+                Some(format!("```{}```", commands::ferris_say(&text.join(" "))))
+            } else {
+                Some("This does not work in Twitch chat!".to_string())
+            }
+        }
+        Commands::Roll { ref sides } => {
+            Some(commands::roll(sides.parse().unwrap_or(6)).to_string())
+        }
+        Commands::AdHoc { ref text } => {
+            let ad_hoc_val = config.ad_hoc_command(text);
+
+            if ad_hoc_val.is_some() {
+                ad_hoc_val
+            } else {
+                Some(show_help())
+            }
+        }
         Commands::Admin(ref admin) => match admin.command {
             AdminCommands::ReloadConfig => None,
             _ => Some(show_help()),

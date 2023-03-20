@@ -28,6 +28,10 @@ pub struct Config {
     /// The Discord channel ID to use when sending debug messages.
     #[serde(default)]
     pub debug_channel: u64,
+    #[serde(default)]
+    pub roles_channel: u64,
+    #[serde(default)]
+    pub ad_hoc: HashMap<String, String>,
 }
 
 impl Config {
@@ -41,7 +45,17 @@ impl Config {
             stream_notification_channel: u64::default(),
             min_stream_notification_secs: default_min_stream_notification_secs(),
             debug_channel: u64::default(),
+            roles_channel: u64::default(),
+            ad_hoc: HashMap::new(),
         }
+    }
+
+    pub fn ad_hoc_command(&self, command: &String) -> Option<String> {
+        self.ad_hoc.get(command).map(|x| x.to_string())
+    }
+
+    pub fn ad_hoc_commands(&self) -> Vec<String> {
+        self.ad_hoc.iter().map(|(k, _)| k.to_string()).collect()
     }
 }
 

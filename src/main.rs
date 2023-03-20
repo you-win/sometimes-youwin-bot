@@ -6,7 +6,11 @@ use std::{
     time::Duration,
 };
 
-use log::{debug, error, info};
+use fern::{
+    colors::{Color, ColoredLevelConfig},
+    Dispatch,
+};
+use log::{debug, error, info, LevelFilter};
 use model::{
     config::Config,
     creds,
@@ -17,7 +21,64 @@ use tokio::{
     task::JoinHandle,
 };
 
-pub static IS_RUNNING: AtomicBool = AtomicBool::new(false);
+pub static IS_RUNNING: AtomicBool = AtomicBool::new(true);
+
+fn logging() -> anyhow::Result<()> {
+    let colors = ColoredLevelConfig::new()
+        .info(Color::Blue)
+        .warn(Color::Yellow)
+        .error(Color::Red)
+        .debug(Color::Magenta)
+        .trace(Color::BrightGreen);
+
+    let term_config = Dispatch::new()
+        .format(move |out, message, record| {
+            out.finish(format_args!(
+                "[{}] {} - {}",
+                colors.color(record.level()),
+                record.target(),
+                message
+            ))
+        })
+        .level(LevelFilter::Warn)
+        .level_for("sometimes_youwin_bot", LevelFilter::Debug)
+        .chain(std::io::stdout());
+
+    let dirs = directories::ProjectDirs::from("win", "sometimesyou", "bot")
+        .expect("Unable to get project directory.");
+    let project_path = dirs.data_dir();
+
+    {
+        let log_dir = project_path.join("logs");
+        let log_dir = log_dir.as_path();
+
+        std::fs::create_dir_all(log_dir)?;
+    }
+
+    let file_config = Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{}] {} {} - {}",
+                record.level(),
+                chrono::Local::now().format("%Y-%m-%d_%H:%M:%S"),
+                record.target(),
+                message
+            ))
+        })
+        .level(LevelFilter::Warn)
+        .level_for("sometimes_youwin_bot", LevelFilter::Debug)
+        .chain(fern::log_file(format!(
+            "{}/logs/syb.log",
+            project_path.to_str().expect("Unable to get project path")
+        ))?);
+
+    Dispatch::new()
+        .chain(term_config)
+        .chain(file_config)
+        .apply()?;
+
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -28,8 +89,10 @@ async fn main() -> anyhow::Result<()> {
     );
 
     env_logger::Builder::new()
-        .parse_filters("warn,bot=debug,sometimes_youwin=debug")
+        .parse_filters("warn,twitchchat=warn,sometimes_youwin_bot=debug,discord=debug,twitch=debug")
         .init();
+
+    info!("Logging initted!");
 
     let config = Arc::new(RwLock::new(Config::new()));
 
@@ -47,6 +110,8 @@ async fn main() -> anyhow::Result<()> {
             }
         })?;
     }
+
+    debug!("Set ctrl+c handler!");
 
     let discord_join_handle = {
         let config = config.clone();
@@ -115,9 +180,16 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }))
                     };
+
+                    debug!("Spawned task for Twitch bot!");
                 }
                 DiscordMessage::ConfigUpdated(c) => {
                     *config.write().await = c;
+                    debug!("Config updated!");
+
+                    if let Err(e) = host_sender.send(CentralMessage::ConfigUpdated) {
+                        error!("{e}");
+                    }
                 }
                 DiscordMessage::Debug(m) => {
                     debug!("Discord: {m}");

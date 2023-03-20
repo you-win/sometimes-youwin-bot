@@ -1,5 +1,4 @@
 mod antispam;
-mod commands;
 mod discord_bot;
 
 use antispam::Antispam;

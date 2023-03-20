@@ -8,8 +8,10 @@ edition = "2021"
 [dependencies]
 model = { path = "../model" }
 
+log = { workspace = true }
 thiserror = { workspace = true }
 
 clap = { version = "4.1", features = ["derive"] }
 ferris-says = "0.2"
 rand = "0.8"
+strum = { version = "0.24", features = ["derive"] }

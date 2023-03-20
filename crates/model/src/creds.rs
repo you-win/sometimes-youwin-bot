@@ -1,6 +1,6 @@
 pub trait BotCreds {
     fn bot_prefix(&self) -> &str {
-        "?"
+        "bot?"
     }
 }
 

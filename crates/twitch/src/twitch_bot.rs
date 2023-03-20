@@ -176,31 +176,36 @@ impl<'a> Bot<'a> {
             return Ok(());
         }
 
-        let cmd = text
-            .strip_prefix(self.creds.bot_prefix())
-            .unwrap_or_default();
+        let config = &*self.config.read().await;
 
         let output = commands::parse(
-            cmd,
+            text,
             commands::AdditionalInfo::Twitch {
                 name: msg.name().to_string(),
                 is_vip: msg.is_vip(),
             },
+            &config,
         );
 
-        self.send_chat_message(output.get_value().unwrap_or("No output!".into()).as_str())
-            .await?;
+        let chat_message = match output {
+            CommandOutput::Command { value, .. } | CommandOutput::AdminCommand { value, .. } => {
+                value.unwrap_or("No output!".into())
+            }
+            CommandOutput::Error(_) => {
+                let mut cli_commands = commands::Commands::commands();
+                cli_commands.append(&mut config.ad_hoc_commands());
 
-        // TODO stub
-        match output {
-            CommandOutput::Command { command, .. } => {}
-            CommandOutput::AdminCommand { command, .. } => {}
-            _ => {}
-        }
+                cli_commands.join(", ")
+            }
+        };
+
+        self.send_chat_message(chat_message.as_str()).await?;
 
         Ok(())
     }
 
+    /// Handles a message from the main controller. Returns false if the loop for
+    /// the twitch bot should stop running.
     pub async fn handle_central_message(&mut self) -> bool {
         match self.receiver.try_recv() {
             Ok(m) => match m {

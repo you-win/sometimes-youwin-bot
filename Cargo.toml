@@ -35,3 +35,6 @@ twitch = { path = "crates/twitch" }
 model = { path = "crates/model" }
 
 ctrlc = "3.2"
+
+fern = { version = "0.6", features = ["colored"] }
+directories = "4.0"
