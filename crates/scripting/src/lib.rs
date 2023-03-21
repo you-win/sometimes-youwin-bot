@@ -1,16 +1,17 @@
 use regex::Regex;
-use rhai::{Dynamic, Engine, Locked, Shared};
+use rhai::{Dynamic, Engine, Locked, Module, Scope, Shared};
 
 /// The max number of operations that a Rhai script can do before it is
 /// forcible halted.
 pub const MAX_SCRIPTING_OPS: u64 = 10_000;
 
-pub fn execute_timed(text: impl AsRef<str>, max_time: u64) -> anyhow::Result<String> {
-    let re = Regex::new(r"sleep\([\d*\w*\s*]*\)")?;
-    if re.find(text.as_ref()).is_some() {
-        anyhow::bail!("Blacklisted function detected. Declining to run.");
-    }
+const HEADER_TEMPLATE: &str = r"
+fn sleep(n) {
+    //
+}
+";
 
+pub fn execute_timed(text: impl AsRef<str>, max_time: u64) -> anyhow::Result<String> {
     let mut engine = Engine::new();
 
     let out = Shared::new(Locked::new(Vec::new()));
@@ -32,6 +33,10 @@ pub fn execute_timed(text: impl AsRef<str>, max_time: u64) -> anyhow::Result<Str
             Some(Dynamic::UNIT)
         }
     });
+
+    let template_ast = engine.compile(HEADER_TEMPLATE)?;
+    let template_module = Module::eval_ast_as_new(Scope::new(), &template_ast, &engine)?;
+    engine.register_global_module(template_module.into());
 
     let script_ret = engine
         .eval::<Dynamic>(text.as_ref())
