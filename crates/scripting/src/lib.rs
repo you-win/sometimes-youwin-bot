@@ -1,12 +1,16 @@
-use rhai::{Dynamic, Engine, Locked, Shared, Stmt};
+use regex::Regex;
+use rhai::{Dynamic, Engine, Locked, Shared};
 
 /// The max number of operations that a Rhai script can do before it is
 /// forcible halted.
 pub const MAX_SCRIPTING_OPS: u64 = 10_000;
 
-pub const SLEEP_FN: &str = "sleep";
+pub fn execute_timed(text: impl AsRef<str>, max_time: u64) -> anyhow::Result<String> {
+    let re = Regex::new(r"sleep\([\d*\w*\s*]*\)")?;
+    if re.find(text.as_ref()).is_some() {
+        anyhow::bail!("Blacklisted function detected. Declining to run.");
+    }
 
-pub fn execute_timed(text: impl ToString, max_time: u64) -> anyhow::Result<String> {
     let mut engine = Engine::new();
 
     let out = Shared::new(Locked::new(Vec::new()));
@@ -29,17 +33,8 @@ pub fn execute_timed(text: impl ToString, max_time: u64) -> anyhow::Result<Strin
         }
     });
 
-    let ast = engine.compile(text.to_string())?;
-    if ast.statements().iter().any(|s| match s {
-        Stmt::FnCall(boxed_fn_call, _) => boxed_fn_call.name.to_lowercase().as_str() == SLEEP_FN,
-        _ => false,
-    }) || ast.iter_functions().any(|f| f.name == SLEEP_FN)
-    {
-        anyhow::bail!("Blacklisted function detected, declining to run.");
-    }
-
     let script_ret = engine
-        .eval_ast::<Dynamic>(&ast)
+        .eval::<Dynamic>(text.as_ref())
         .map_err(anyhow::Error::from)
         .map(|x| x.to_string())?;
     let print_ret = if let Ok(v) = out.read() {
@@ -51,6 +46,6 @@ pub fn execute_timed(text: impl ToString, max_time: u64) -> anyhow::Result<Strin
     Ok(format!("{print_ret}\n{script_ret}"))
 }
 
-pub fn execute(text: impl ToString) -> anyhow::Result<String> {
+pub fn execute(text: impl AsRef<str>) -> anyhow::Result<String> {
     execute_timed(text, MAX_SCRIPTING_OPS)
 }
