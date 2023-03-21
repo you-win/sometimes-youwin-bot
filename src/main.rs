@@ -89,7 +89,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     env_logger::Builder::new()
-        .parse_filters("warn,twitchchat=warn,sometimes_youwin_bot=debug,discord=debug,twitch=debug")
+        .parse_filters("warn,twitchchat=warn,sometimes_youwin_bot=debug,discord=debug,twitch=debug,commands=debug,scripting=debug")
         .init();
 
     info!("Logging initted!");

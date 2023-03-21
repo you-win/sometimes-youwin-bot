@@ -1,8 +1,10 @@
-use rhai::{Dynamic, Engine, Locked, Shared};
+use rhai::{Dynamic, Engine, Locked, Shared, Stmt};
 
 /// The max number of operations that a Rhai script can do before it is
 /// forcible halted.
 pub const MAX_SCRIPTING_OPS: u64 = 10_000;
+
+pub const SLEEP_FN: &str = "sleep";
 
 pub fn execute_timed(text: impl ToString, max_time: u64) -> anyhow::Result<String> {
     let mut engine = Engine::new();
@@ -27,8 +29,17 @@ pub fn execute_timed(text: impl ToString, max_time: u64) -> anyhow::Result<Strin
         }
     });
 
+    let ast = engine.compile(text.to_string())?;
+    if ast.statements().iter().any(|s| match s {
+        Stmt::FnCall(boxed_fn_call, _) => boxed_fn_call.name.to_lowercase().as_str() == SLEEP_FN,
+        _ => false,
+    }) || ast.iter_functions().any(|f| f.name == SLEEP_FN)
+    {
+        anyhow::bail!("Blacklisted function detected, declining to run.");
+    }
+
     let script_ret = engine
-        .eval::<Dynamic>(text.to_string().as_str())
+        .eval_ast::<Dynamic>(&ast)
         .map_err(anyhow::Error::from)
         .map(|x| x.to_string())?;
     let print_ret = if let Ok(v) = out.read() {

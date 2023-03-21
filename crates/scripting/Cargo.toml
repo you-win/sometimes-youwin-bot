@@ -9,4 +9,4 @@ edition = "2021"
 log = { workspace = true }
 anyhow = { workspace = true }
 
-rhai = { version = "1.13", features = ["sync", "only_i64"] }
+rhai = { version = "1.13", features = ["sync", "only_i64", "internals"] }
