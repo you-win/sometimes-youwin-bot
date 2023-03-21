@@ -1,4 +1,3 @@
-use regex::Regex;
 use rhai::{Dynamic, Engine, Locked, Module, Scope, Shared};
 
 /// The max number of operations that a Rhai script can do before it is
