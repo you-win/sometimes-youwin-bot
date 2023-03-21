@@ -1,14 +1,18 @@
-use rhai::{Dynamic, Engine, Locked, Module, Scope, Shared};
+use std::str::FromStr;
+
+use rhai::{plugin::*, Dynamic, Engine, Locked, Module, Scope, Shared};
 
 /// The max number of operations that a Rhai script can do before it is
 /// forcible halted.
 pub const MAX_SCRIPTING_OPS: u64 = 10_000;
 
-const HEADER_TEMPLATE: &str = r"
-fn sleep(n) {
-    //
+#[export_module]
+mod bot_prelude {
+    #[rhai_fn(global)]
+    pub fn sleep(_n: i64) {
+        // Intentionally left blank
+    }
 }
-";
 
 pub fn execute_timed(text: impl AsRef<str>, max_time: u64) -> anyhow::Result<String> {
     let mut engine = Engine::new();
@@ -29,13 +33,12 @@ pub fn execute_timed(text: impl AsRef<str>, max_time: u64) -> anyhow::Result<Str
         if count <= max_time {
             None
         } else {
-            Some(Dynamic::UNIT)
+            Some(Dynamic::from_str("Too many operations, bailing out.").unwrap_or_default())
         }
     });
 
-    let template_ast = engine.compile(HEADER_TEMPLATE)?;
-    let template_module = Module::eval_ast_as_new(Scope::new(), &template_ast, &engine)?;
-    engine.register_global_module(template_module.into());
+    let bot_prelude = exported_module!(bot_prelude);
+    engine.register_global_module(bot_prelude.into());
 
     let script_ret = engine
         .eval::<Dynamic>(text.as_ref())
