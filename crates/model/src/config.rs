@@ -25,6 +25,8 @@ pub struct Config {
     /// The minimum duration between stream notifications in seconds.
     #[serde(default = "default_min_stream_notification_secs")]
     pub min_stream_notification_secs: u64,
+    #[serde(default)]
+    pub stream_notification_format: String,
     /// The Discord channel ID to use when sending debug messages.
     #[serde(default)]
     pub debug_channel: u64,
@@ -44,6 +46,7 @@ impl Config {
             timeout_role_id: u64::default(),
             stream_notification_channel: u64::default(),
             min_stream_notification_secs: default_min_stream_notification_secs(),
+            stream_notification_format: Default::default(),
             debug_channel: u64::default(),
             roles_channel: u64::default(),
             ad_hoc: HashMap::new(),

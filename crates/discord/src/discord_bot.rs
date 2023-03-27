@@ -3,7 +3,7 @@ use commands::CommandOutput;
 use model::{
     config::{self, Config},
     creds::{BotCreds, DiscordCreds},
-    messages::{CentralMessage, DiscordMessage},
+    messages::{CentralMessage, DiscordMessage, TwitchMessage},
 };
 
 use log::{debug, error, info};
@@ -270,11 +270,6 @@ async fn start_job_thread(bot: &Bot, ctx: &Context) {
                                 let rr = reaction_roles.read().await;
 
                                 let roles_channel = ChannelId(config.roles_channel);
-                                match roles_channel.messages(&client.http, |m| m).await {
-                                    Ok(v) => {}
-                                    Err(e) => error!("Unable to process old role: {e}"),
-                                }
-
                                 if let Ok(messages) =
                                     roles_channel.messages(&client.http, |m| m).await
                                 {
@@ -292,8 +287,19 @@ async fn start_job_thread(bot: &Bot, ctx: &Context) {
 
                             debug!("Finished updating config!");
                         }
-                        CentralMessage::Twitch(m) => {
-                            //
+                        CentralMessage::Twitch(TwitchMessage::ChannelLive { channel, title }) => {
+                            let config = config.read().await;
+
+                            let notification_channel =
+                                ChannelId(config.stream_notification_channel);
+                            if let Err(e) = notification_channel
+                                .send_message(&client, |f| {
+                                    f.content(format!("{channel} is live! {title}"))
+                                })
+                                .await
+                            {
+                                error!("{e}");
+                            }
                         }
                         CentralMessage::Shutdown => {
                             break;
