@@ -131,12 +131,12 @@ impl EventHandler for Bot {
         );
 
         match output {
-            CommandOutput::Command { value, command } => {
+            CommandOutput::Command { value, .. } => {
                 if let Some(v) = value {
                     reply_mention(&ctx, &message, &v).await;
                 }
             }
-            CommandOutput::AdminCommand { value, command } => {}
+            CommandOutput::AdminCommand { .. } => {}
             CommandOutput::Error {
                 message: error_text,
                 is_help,
@@ -214,6 +214,7 @@ async fn reply_mention(cache_http: impl CacheHttp, message: &Message, text: &Str
     }
 }
 
+// TODO cleanup code after figuring out which things are needed in the job thread
 async fn start_job_thread(bot: &Bot, ctx: &Context) {
     debug!("Starting Discord job thread.");
 
@@ -223,11 +224,11 @@ async fn start_job_thread(bot: &Bot, ctx: &Context) {
         let config = bot.config.clone();
         let creds = bot.creds.clone();
 
-        let antispam = bot.antispam.clone();
+        // let antispam = bot.antispam.clone();
         let reaction_roles = bot.reaction_roles.clone();
 
         let mut receiver = bot.receiver.resubscribe();
-        let sender = bot.sender.clone();
+        // let sender = bot.sender.clone();
 
         let interval = bot.interval.clone();
 
@@ -302,6 +303,7 @@ async fn start_job_thread(bot: &Bot, ctx: &Context) {
                             }
                         }
                         CentralMessage::Shutdown => {
+                            info!("Shutdown received");
                             break;
                         }
                         _ => {}
@@ -384,7 +386,10 @@ async fn process_old_reaction_roles(
                         };
 
                         if let Err(e) = member.add_role(&ctx.http, *id).await {
-                            error!("Unable to handle role {emoji} for user {}", user.name);
+                            error!(
+                                "Unable to handle role {emoji} for user {} because of {e}",
+                                user.name
+                            );
                             continue;
                         }
                     }

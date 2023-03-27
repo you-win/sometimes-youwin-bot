@@ -270,7 +270,6 @@ pub fn parse(input: impl Display, info: AdditionalInfo, config: &Config) -> Comm
             AdminCommands::ReloadConfig => None,
             _ => Some(show_help()),
         },
-        _ => Some(show_help()),
     };
 
     CommandOutput::from((args.command, output))

@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use rhai::{plugin::*, Dynamic, Engine, Locked, Module, Scope, Shared};
+use rhai::{plugin::*, Dynamic, Engine, Locked, Module, Shared};
 
 /// The max number of operations that a Rhai script can do before it is
 /// forcible halted.

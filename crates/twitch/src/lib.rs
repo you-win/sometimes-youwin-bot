@@ -1,6 +1,6 @@
 mod twitch_bot;
 
-use log::{debug, error, info};
+use log::{error, info};
 use std::sync::Arc;
 use tokio::sync::{
     broadcast::{Receiver, Sender},
