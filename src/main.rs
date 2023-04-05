@@ -6,10 +6,6 @@ use std::{
     time::Duration,
 };
 
-use fern::{
-    colors::{Color, ColoredLevelConfig},
-    Dispatch,
-};
 use log::{debug, error, info, LevelFilter};
 use model::{
     config::Config,
@@ -23,63 +19,6 @@ use tokio::{
 
 pub static IS_RUNNING: AtomicBool = AtomicBool::new(true);
 
-fn logging() -> anyhow::Result<()> {
-    let colors = ColoredLevelConfig::new()
-        .info(Color::Blue)
-        .warn(Color::Yellow)
-        .error(Color::Red)
-        .debug(Color::Magenta)
-        .trace(Color::BrightGreen);
-
-    let term_config = Dispatch::new()
-        .format(move |out, message, record| {
-            out.finish(format_args!(
-                "[{}] {} - {}",
-                colors.color(record.level()),
-                record.target(),
-                message
-            ))
-        })
-        .level(LevelFilter::Warn)
-        .level_for("sometimes_youwin_bot", LevelFilter::Debug)
-        .chain(std::io::stdout());
-
-    let dirs = directories::ProjectDirs::from("win", "sometimesyou", "bot")
-        .expect("Unable to get project directory.");
-    let project_path = dirs.data_dir();
-
-    {
-        let log_dir = project_path.join("logs");
-        let log_dir = log_dir.as_path();
-
-        std::fs::create_dir_all(log_dir)?;
-    }
-
-    let file_config = Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "[{}] {} {} - {}",
-                record.level(),
-                chrono::Local::now().format("%Y-%m-%d_%H:%M:%S"),
-                record.target(),
-                message
-            ))
-        })
-        .level(LevelFilter::Warn)
-        .level_for("sometimes_youwin_bot", LevelFilter::Debug)
-        .chain(fern::log_file(format!(
-            "{}/logs/syb.log",
-            project_path.to_str().expect("Unable to get project path")
-        ))?);
-
-    Dispatch::new()
-        .chain(term_config)
-        .chain(file_config)
-        .apply()?;
-
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     println!(
@@ -88,9 +27,17 @@ async fn main() -> anyhow::Result<()> {
         env!("GIT_REV")
     );
 
-    env_logger::Builder::new()
-        .parse_filters("warn,twitchchat=warn,sometimes_youwin_bot=debug,discord=debug,twitch=debug,commands=debug,scripting=debug")
-        .init();
+    logging::LoggingBuilder::new()
+        .app_name("sometimes-youwin-bot")
+        .organization("sometimesyouwin")
+        .qualifier("win")
+        .global_level(LevelFilter::Warn)
+        .level_for("sometimes_youwin_bot", LevelFilter::Debug)
+        .level_for("discord", LevelFilter::Debug)
+        .level_for("twitch", LevelFilter::Debug)
+        .level_for("commands", LevelFilter::Debug)
+        .level_for("scripting", LevelFilter::Debug)
+        .finish()?;
 
     info!("Logging initted!");
 

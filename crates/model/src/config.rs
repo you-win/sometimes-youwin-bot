@@ -19,19 +19,22 @@ pub struct Config {
     /// The Discord role ID to use when silencing a user. A value of 0 means there is no role.
     #[serde(default)]
     pub timeout_role_id: u64,
-    /// The Discord channel ID to use when sending stream notifications.
-    #[serde(default)]
-    pub stream_notification_channel: u64,
+
     /// The minimum duration between stream notifications in seconds.
     #[serde(default = "default_min_stream_notification_secs")]
     pub min_stream_notification_secs: u64,
     #[serde(default)]
     pub stream_notification_format: String,
+
+    /// The Discord channel ID to use when sending stream notifications.
+    #[serde(default)]
+    pub stream_notification_channel: u64,
     /// The Discord channel ID to use when sending debug messages.
     #[serde(default)]
     pub debug_channel: u64,
     #[serde(default)]
     pub roles_channel: u64,
+
     #[serde(default)]
     pub ad_hoc: HashMap<String, String>,
 }

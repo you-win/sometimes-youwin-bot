@@ -10,3 +10,4 @@ log = { workspace = true }
 anyhow = { workspace = true }
 
 rhai = { version = "1.13", features = ["sync", "only_i64"] }
+rune = "0.12"

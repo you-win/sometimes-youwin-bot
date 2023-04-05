@@ -26,5 +26,9 @@ pub enum TwitchMessage {
     Error(String),
 
     Ready,
-    ChannelLive { channel: String, title: String },
+    ChannelLive {
+        channel: String,
+        title: String,
+        url: String,
+    },
 }

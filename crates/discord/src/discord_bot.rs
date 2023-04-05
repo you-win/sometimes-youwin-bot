@@ -1,4 +1,5 @@
 use super::Antispam;
+use chrono::Local;
 use commands::CommandOutput;
 use model::{
     config::{self, Config},
@@ -16,6 +17,7 @@ use std::{
     },
     time::Duration,
 };
+use strfmt::Format;
 use tokio::{
     sync::{
         broadcast::{error::TryRecvError, Receiver, Sender},
@@ -23,6 +25,8 @@ use tokio::{
     },
     time::Interval,
 };
+
+const UNKNOWN_MEMBER_CODE: isize = 10007;
 
 pub struct Bot {
     config: Arc<RwLock<Config>>,
@@ -270,32 +274,64 @@ async fn start_job_thread(bot: &Bot, ctx: &Context) {
                             {
                                 let rr = reaction_roles.read().await;
 
-                                let roles_channel = ChannelId(config.roles_channel);
-                                if let Ok(messages) =
-                                    roles_channel.messages(&client.http, |m| m).await
-                                {
-                                    process_old_reaction_roles(
-                                        &client,
-                                        &creds,
-                                        &rr.clone(),
-                                        &messages,
-                                    )
-                                    .await;
-                                } else {
-                                    error!("Unable to process old roles.");
-                                }
+                                process_old_reaction_roles(
+                                    &client,
+                                    &creds,
+                                    &rr.clone(),
+                                    config.roles_channel,
+                                )
+                                .await;
                             }
 
                             debug!("Finished updating config!");
                         }
-                        CentralMessage::Twitch(TwitchMessage::ChannelLive { channel, title }) => {
+                        CentralMessage::Twitch(TwitchMessage::ChannelLive {
+                            channel,
+                            title,
+                            url,
+                        }) => {
                             let config = config.read().await;
 
                             let notification_channel =
                                 ChannelId(config.stream_notification_channel);
+
+                            if let Ok(v) =
+                                notification_channel.messages(&client, |f| f.limit(1)).await
+                            {
+                                if let Some(m) = v.first() {
+                                    let since = m.timestamp.signed_duration_since(Local::now());
+
+                                    if since.num_seconds().unsigned_abs()
+                                        < config.min_stream_notification_secs
+                                    {
+                                        debug!("Too early to send a stream notification!");
+                                        return;
+                                    }
+                                } else {
+                                    error!("Unable to find last stream notification");
+                                    return;
+                                }
+                            } else {
+                                error!("Unable to get last stream notification message");
+                                return;
+                            }
+
                             if let Err(e) = notification_channel
                                 .send_message(&client, |f| {
-                                    f.content(format!("{channel} is live! {title}"))
+                                    // TODO roll my own dynamic formatter since this one is pretty simple
+                                    let mut map = HashMap::new();
+                                    map.insert("channel".to_string(), channel.to_string());
+                                    map.insert("title".to_string(), title.to_string());
+                                    map.insert("url".to_string(), url.to_string());
+
+                                    // config.stream_notification_format.replace("{channel}", channel.as_str()).replace("{title}", title.as_str()).replace("{url}", url.as_str());
+
+                                    f.content(
+                                        config
+                                            .stream_notification_format
+                                            .format(&map)
+                                            .unwrap_or(format!("{channel} is live! {title}\n{url}\n\nERROR occurred: Failed to format message using custom format :<")),
+                                    )
                                 })
                                 .await
                             {
@@ -331,11 +367,14 @@ async fn process_old_reaction_roles(
     ctx: &Context,
     creds: &DiscordCreds,
     cached_rr: &HashMap<String, u64>,
-    messages: &Vec<Message>,
+    roles_channel_id: u64,
 ) {
     debug!("Processing old reaction roles");
 
     let guild = GuildId(creds.guild_id);
+    let channel = ChannelId(roles_channel_id);
+
+    let messages = channel.messages(&ctx, |m| m).await.unwrap_or_default();
 
     for message in messages {
         for (emoji, id) in cached_rr {
@@ -372,6 +411,40 @@ async fn process_old_reaction_roles(
                         Ok(v) => v,
                         Err(e) => {
                             error!("Error occurred for user: {}: {e}", user.name);
+
+                            // Make sure the member does not exist in the guild
+                            if let Err(SerenityError::Http(e)) = guild.member(&ctx, user.id).await {
+                                match *e {
+                                    HttpError::UnsuccessfulRequest(e) => {
+                                        if e.error.code != UNKNOWN_MEMBER_CODE {
+                                            error!("Unknown error: {}", e.error.code);
+                                            continue;
+                                        }
+                                    }
+                                    _ => error!(
+                                        "Unhandled error while searching for guild member: {e}"
+                                    ),
+                                }
+                            }
+
+                            if let Err(e) = ctx
+                                .http()
+                                .delete_reaction(
+                                    roles_channel_id,
+                                    message.id.into(),
+                                    Some(user.id.into()),
+                                    &ReactionType::Unicode(emoji.to_string()),
+                                )
+                                .await
+                            {
+                                error!("{e}");
+                            } else {
+                                info!(
+                                    "Successfully removed {} from reaction {}",
+                                    &user.name, &emoji
+                                );
+                            }
+
                             continue;
                         }
                     };

@@ -9,6 +9,7 @@ use super::commands;
 #[derive(Debug, Parser)]
 #[command(name = "bot?")]
 #[command(about = "A multibot made by youwin.")]
+#[command(version = "0.1.0")]
 #[command(propagate_version = true)]
 pub struct Cli {
     #[command(subcommand)]
