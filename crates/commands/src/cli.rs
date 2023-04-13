@@ -47,6 +47,8 @@ pub enum Commands {
         /// The script. Must be properly formatted using rhai <script> and triple backticks.
         script: Vec<String>,
     },
+    /// Announce that you are lurking.
+    Lurk,
     Admin(Admin),
 }
 
@@ -60,6 +62,7 @@ impl Display for Commands {
             Self::Roll { sides } => write!(f, "roll {}", sides),
             Self::AdHoc { text } => write!(f, "ad-hoc {}", text),
             Self::Rhai { script } => write!(f, "rhai {}", script.join(" ")),
+            Self::Lurk => write!(f, "lurk"),
             Self::Admin(admin) => write!(f, "admin {}", &admin.command),
         }
     }
@@ -266,6 +269,15 @@ pub fn parse(input: impl Display, info: AdditionalInfo, config: &Config) -> Comm
                 Ok(v) => Some(format!("```{v}```")),
                 Err(e) => Some(e.to_string()),
             }
+        }
+        Commands::Lurk => {
+            let name = match info {
+                AdditionalInfo::None => "Unknown User".to_string(),
+                AdditionalInfo::Discord { name, .. } => name,
+                AdditionalInfo::Twitch { name, .. } => name,
+            };
+
+            Some(commands::lurk(&name))
         }
         Commands::Admin(ref admin) => match admin.command {
             AdminCommands::ReloadConfig => None,

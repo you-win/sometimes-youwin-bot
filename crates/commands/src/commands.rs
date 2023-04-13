@@ -45,6 +45,10 @@ pub fn roll(mut sides: u64) -> u64 {
     rng.gen_range(1..=sides)
 }
 
+pub fn lurk(name: &String) -> String {
+    format!("You are now lurking, {}", name)
+}
+
 /// Returns public fields from the config.
 // pub async fn config() -> String {
 //     // let config = crate::CONFIG.read().await;

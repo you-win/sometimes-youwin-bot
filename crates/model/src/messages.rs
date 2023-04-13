@@ -4,6 +4,7 @@ use crate::config::Config;
 pub enum CentralMessage {
     Discord(DiscordMessage),
     Twitch(TwitchMessage),
+    Server(ServerMessage),
 
     ConfigUpdated,
 
@@ -31,4 +32,14 @@ pub enum TwitchMessage {
         title: String,
         url: String,
     },
+
+    TokenExpired,
+}
+
+#[derive(Debug, Clone)]
+pub enum ServerMessage {
+    Debug(String),
+    Error(String),
+
+    Ready,
 }

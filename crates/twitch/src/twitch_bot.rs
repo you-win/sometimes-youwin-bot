@@ -98,8 +98,36 @@ impl<'a> ApiBot<'a> {
                     .map(|_| ())
                     .map_err(anyhow::Error::from)
             }
-            Err(e) => Err(e.into()),
+            Err(e) => {
+                if self.is_token_expired(&e) {
+                    if let Err(e) = self.common.sender.send(TwitchMessage::TokenExpired) {
+                        error!("Failed to send token expired because of: {e}");
+                    }
+                    return Ok(());
+                }
+
+                return Err(e.into());
+            }
         }
+    }
+
+    fn is_token_expired<RE: std::error::Error + Send + Sync + 'static>(
+        &self,
+        e: &twitch_api::helix::ClientRequestError<RE>,
+    ) -> bool {
+        use twitch_api::helix::{ClientRequestError, HelixRequestGetError};
+
+        if let ClientRequestError::HelixRequestGetError(HelixRequestGetError::Error {
+            status,
+            ..
+        }) = e
+        {
+            if status.is_client_error() && status.as_u16() == 401 {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Handles a message from the main controller. Returns false if the loop for

@@ -14,7 +14,6 @@ members = [
 anyhow = "1.0.69"
 thiserror = "1.0"
 log = "0.4"
-env_logger = "0.9"
 chrono = "0.4"
 
 tokio = { version = "1.22", features = ["macros", "rt-multi-thread"] }
@@ -27,11 +26,12 @@ toml = "0.5"
 anyhow = { workspace = true }
 tokio = { workspace = true }
 log = { workspace = true }
-env_logger = { workspace = true }
 chrono = { workspace = true }
 
 discord = { path = "crates/discord" }
 twitch = { path = "crates/twitch" }
+server = { path = "crates/server" }
+
 model = { path = "crates/model" }
 
 ctrlc = "3.2"
