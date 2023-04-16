@@ -223,15 +223,14 @@ async fn main() -> anyhow::Result<()> {
                 }
                 TwitchMessage::TokenExpired => {
                     // TODO check memory usage to see if this is actually killing the task
+                    let sender = twitch_sender.clone();
+                    let receiver = host_sender.subscribe();
+
                     if let Some(handle) = twitch_join_handle {
                         handle.abort();
                     }
 
-                    twitch_join_handle = Some(start_twitch_bot(
-                        twitch_sender.clone(),
-                        host_sender.subscribe(),
-                        config.clone(),
-                    ));
+                    twitch_join_handle = Some(start_twitch_bot(sender, receiver, config.clone()));
                 }
             },
             Err(e) => match e {
