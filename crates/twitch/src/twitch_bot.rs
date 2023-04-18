@@ -22,10 +22,17 @@ use twitch_api::{
 };
 use twitchchat::messages::Privmsg;
 
+// TODO rewrite the entire thing to use my own library
+// Both the twitch_api lib and the twitchchat lib are too obtuse to actually be useful
+
+// Fuck this, just use a static variable.
+// - twitchchat does expose a single-step loop (even though it says it does)
+// - twitch_api makes doing anything extraordinarily difficult
+static mut USER_TOKEN: Option<UserToken> = None;
+
 pub struct BotCommon {
     config: Arc<RwLock<Config>>,
     creds: TwitchCreds,
-    user_token: UserToken,
 
     receiver: Receiver<CentralMessage>,
     sender: Sender<TwitchMessage>,
@@ -36,7 +43,6 @@ impl Clone for BotCommon {
         Self {
             config: self.config.clone(),
             creds: self.creds.clone(),
-            user_token: self.user_token.clone(),
             receiver: self.receiver.resubscribe(),
             sender: self.sender.clone(),
         }
@@ -79,7 +85,7 @@ impl<'a> ApiBot<'a> {
                 GetStreamsRequest::user_logins(
                     [UserNameRef::from_str(self.creds.channel_name.as_str())].as_slice(),
                 ),
-                &self.user_token,
+                unsafe { &USER_TOKEN.clone().unwrap() },
             )
             .await
         {
@@ -100,9 +106,18 @@ impl<'a> ApiBot<'a> {
             }
             Err(e) => {
                 if self.is_token_expired(&e) {
-                    if let Err(e) = self.common.sender.send(TwitchMessage::TokenExpired) {
-                        error!("Failed to send token expired because of: {e}");
+                    if let Ok((_, token)) = create_api_resources(&self.creds).await {
+                        unsafe { USER_TOKEN = Some(token) };
+                    } else {
+                        if let Err(e) = self
+                            .common
+                            .sender
+                            .send(TwitchMessage::Error("Unable to refresh user token".into()))
+                        {
+                            error!("{e}");
+                        }
                     }
+
                     return Ok(());
                 }
 
@@ -242,7 +257,7 @@ impl ChatBot {
                 let _ = handle.notify();
 
                 self.client = create_irc_resources(
-                    self.common.user_token.access_token.secret(),
+                    unsafe { USER_TOKEN.clone().unwrap().access_token.secret() },
                     &self.creds.bot_name,
                     &self.creds.channel_name,
                 )
@@ -320,10 +335,13 @@ pub async fn create_bots<'a>(
     )
     .await?;
 
+    unsafe {
+        USER_TOKEN = Some(user_token);
+    }
+
     let common = BotCommon {
         config: config.clone(),
         creds,
-        user_token,
         receiver,
         sender,
     };
