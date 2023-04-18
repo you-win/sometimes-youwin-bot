@@ -228,6 +228,8 @@ async fn main() -> anyhow::Result<()> {
 
                     if let Some(handle) = twitch_join_handle {
                         handle.abort();
+
+                        let _ = handle.await;
                     }
 
                     twitch_join_handle = Some(start_twitch_bot(sender, receiver, config.clone()));
